@@ -4,29 +4,50 @@ using System.Security.Cryptography;
 
 namespace AICompanyOS.Runtime;
 
-public sealed class FileEventStore : IDisposable
+public sealed partial class FileEventStore : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly string _root;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly FileStream _writerLock;
+    private IEventJournal _journal;
+    private StorageProfile _profile;
 
-    public FileEventStore(string root)
+    public FileEventStore(string root, string? backend = null)
     {
         _root = Path.GetFullPath(root);
-        Directory.CreateDirectory(_root);
-        _writerLock = new FileStream(Path.Combine(_root, "runtime.lock"), FileMode.OpenOrCreate,
+        if (!Directory.Exists(_root))
+        {
+            Directory.CreateDirectory(_root);
+            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(_root, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        _writerLock = new FileStream(LocalFiles.Child(_root, "runtime.lock"), FileMode.OpenOrCreate,
             FileAccess.ReadWrite, FileShare.None);
+        try
+        {
+            var pointer = LocalFiles.Child(_root, "storage.json");
+            _profile = File.Exists(pointer)
+                ? JsonSerializer.Deserialize<StorageProfile>(File.ReadAllBytes(pointer), JsonOptions) ?? throw new InvalidDataException("Invalid storage profile.")
+                : new StorageProfile(backend ?? "file");
+            if (backend is not null && backend != _profile.Backend) throw new InvalidOperationException("Use verified migration to switch existing storage.");
+            _journal = OpenJournal(_profile);
+            if (!File.Exists(pointer))
+                LocalFiles.WriteAtomicAsync(pointer, JsonSerializer.SerializeToUtf8Bytes(_profile, JsonOptions), CancellationToken.None).GetAwaiter().GetResult();
+        }
+        catch { _journal?.Dispose(); _writerLock.Dispose(); throw; }
     }
+
+    public string Backend => _journal.Backend;
 
     public void Dispose()
     {
+        _journal.Dispose();
         _writerLock.Dispose();
         _gate.Dispose();
     }
 
     public async Task<CreateRunResult> CreateRunAsync(
-        string companyId, string runId, string objective, string[] sourceRefs, string idempotencyKey, CancellationToken cancellationToken)
+        string companyId, string runId, string objective, string[] sourceRefs, string idempotencyKey, CancellationToken cancellationToken, string leaderAgentId = "leader-agent", string baAgentId = "ba-agent")
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -38,6 +59,8 @@ public sealed class FileEventStore : IDisposable
                 objective,
                 sourceRefs
             }, JsonOptions))).ToLowerInvariant();
+            if (leaderAgentId != "leader-agent" || baAgentId != "ba-agent")
+                requestHash = RuntimeJson.Hash(new { companyId, objective, sourceRefs, leaderAgentId, baAgentId });
             var prior = events.FirstOrDefault(item => item.Type == "workflow.created" &&
                 ReadString(item.Data, "idempotencyKey") == idempotencyKey);
             if (prior is not null)
@@ -50,10 +73,11 @@ public sealed class FileEventStore : IDisposable
                 var additions = new List<DomainEvent>();
                 var existingSpec = existingRunEvents.FirstOrDefault(item => item.Type == "spec.produced")
                     ?.Data.Deserialize<SpecArtifact>(JsonOptions);
-                var recoveredSpec = existingSpec ?? new SpecArtifact($"spec-{Guid.NewGuid():N}", objective, sourceRefs, "produced");
+                var recoveredMemory = prior.Data.TryGetProperty("memorySnapshot", out var memory) ? memory.Deserialize<MemoryRecord[]>(JsonOptions) : [];
+                var recoveredSpec = existingSpec ?? new SpecArtifact($"spec-{Guid.NewGuid():N}", objective, sourceRefs, "produced", recoveredMemory);
                 if (existingSpec is null) additions.Add(DomainEvent.Create("spec.produced", recoveredSpec));
                 if (!existingRunEvents.Any(item => item.Type == "handoff.requested"))
-                    additions.Add(DomainEvent.Create("handoff.requested", HandoffPacket.Create(companyId, prior.RunId, recoveredSpec)));
+                    additions.Add(DomainEvent.Create("handoff.requested", HandoffPacket.Create(companyId, prior.RunId, recoveredSpec, leaderAgentId, baAgentId)));
                 if (additions.Count > 0)
                     await AppendUnsafeAsync(companyId, prior.RunId, additions, events, cancellationToken);
                 if (additions.Count > 0)
@@ -62,11 +86,22 @@ public sealed class FileEventStore : IDisposable
                 return new CreateRunResult(existingRun, false);
             }
 
-            var spec = new SpecArtifact($"spec-{Guid.NewGuid():N}", objective, sourceRefs, "produced");
-            var packet = HandoffPacket.Create(companyId, runId, spec);
+            var catalog = await ReadEventsUnsafeAsync(CatalogCompany, 0, cancellationToken);
+            Agent[] bindings = [];
+            if (catalog.Any(e => e.RunId == companyId && e.Type == "company.created"))
+            {
+                var agents = AgentsFrom(companyId, catalog, events);
+                var ba = agents.FirstOrDefault(a => a.AgentId == baAgentId && a.RoleIds.Contains("ba"));
+                var leader = agents.FirstOrDefault(a => a.AgentId == leaderAgentId && a.RoleIds.Contains("leader"));
+                if (ba is null || leader is null) throw new WorkspaceConflictException("Selected agents must have the BA and Leader roles in this company.");
+                bindings = [ba, leader];
+            }
+            var memorySnapshot = CanonicalFrom(events);
+            var spec = new SpecArtifact($"spec-{Guid.NewGuid():N}", objective, sourceRefs, "produced", memorySnapshot);
+            var packet = HandoffPacket.Create(companyId, runId, spec, leaderAgentId, baAgentId);
             await AppendUnsafeAsync(companyId, runId,
             [
-                DomainEvent.Create("workflow.created", new { objective, status = "awaiting_handoff", idempotencyKey, requestHash }),
+                DomainEvent.Create("workflow.created", new { objective, status = "awaiting_handoff", idempotencyKey, requestHash, leaderAgentId, baAgentId, bindings, memorySnapshot }),
                 DomainEvent.Create("spec.produced", spec),
                 DomainEvent.Create("handoff.requested", packet)
             ], events, cancellationToken);
@@ -79,28 +114,14 @@ public sealed class FileEventStore : IDisposable
 
     public async Task AppendAsync(string companyId, string runId, IReadOnlyList<DomainEvent> events, CancellationToken cancellationToken)
     {
+        Identifiers.Require(runId);
         await _gate.WaitAsync(cancellationToken);
         try
         {
             var existing = await ReadEventsUnsafeAsync(companyId, 0, cancellationToken);
-            var path = GetLogPath(companyId);
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            await using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read, 4096, FileOptions.Asynchronous | FileOptions.WriteThrough);
-            foreach (var item in events)
-            {
-                var persisted = item with { Seq = existing.Count + 1, RunId = runId };
-                var bytes = JsonSerializer.SerializeToUtf8Bytes(persisted, JsonOptions);
-                await stream.WriteAsync(bytes, cancellationToken);
-                await stream.WriteAsync("\n"u8.ToArray(), cancellationToken);
-                existing.Add(persisted);
-            }
-            await stream.FlushAsync(cancellationToken);
-            stream.Flush(flushToDisk: true);
+            await AppendUnsafeAsync(companyId, runId, events, existing, cancellationToken);
         }
-        finally
-        {
-            _gate.Release();
-        }
+        finally { _gate.Release(); }
     }
 
     public async Task<WorkflowRun?> GetRunAsync(string companyId, string runId, CancellationToken cancellationToken)
@@ -124,7 +145,7 @@ public sealed class FileEventStore : IDisposable
         ReadEventsLockedAsync(companyId, afterSequence, cancellationToken);
 
     public async Task<CommandResult> AcknowledgeHandoffAsync(
-        string companyId, string runId, string packetHash, string receiverAgentId, string idempotencyKey, CancellationToken cancellationToken)
+        string companyId, string runId, string packetHash, string receiverAgentId, string idempotencyKey, CancellationToken cancellationToken, long? expectedSequence = null)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -138,6 +159,8 @@ public sealed class FileEventStore : IDisposable
             {
                 if (ReadString(priorAck.Data, "packetHash") != packetHash || ReadString(priorAck.Data, "receiverAgentId") != receiverAgentId)
                     return new(CommandOutcome.Conflict, run, "Idempotency key was already used for a different acknowledgement.");
+                if (run.State is "paused" or "cancelled") return new(CommandOutcome.AlreadyApplied, run);
+                if (run.ExecutionMode == "local_model") return new(CommandOutcome.AlreadyApplied, run);
                 var missingEvents = new List<DomainEvent>();
                 if (!runEvents.Any(item => item.Type == "plan.produced"))
                 {
@@ -152,11 +175,23 @@ public sealed class FileEventStore : IDisposable
                 var recoveredEvents = await ReadEventsUnsafeAsync(companyId, 0, cancellationToken);
                 return new(CommandOutcome.Applied, RebuildRun(companyId, runId, recoveredEvents.Where(item => item.RunId == runId).ToArray()));
             }
-            if (!string.Equals(receiverAgentId, "leader-agent", StringComparison.Ordinal))
-                return new(CommandOutcome.Invalid, run, "This workflow slice is assigned to leader-agent.");
+            if (expectedSequence is not null && run.LastSequence != expectedSequence)
+                return new(CommandOutcome.Conflict, run, "The run changed; reload its checkpoint.");
+            if (!string.Equals(receiverAgentId, run.LeaderAgentId ?? "leader-agent", StringComparison.Ordinal))
+                return new(CommandOutcome.Invalid, run, "This workflow is assigned to another Leader agent.");
             if (run.Handoff is null || !string.Equals(run.Handoff.ContentSha256, packetHash, StringComparison.Ordinal))
                 return new(CommandOutcome.Invalid, run, "Handoff packet hash does not match the persisted packet.");
+            if (run.Handoff.SpecSha256 is not null && (run.Handoff.CalculateHash() != packetHash || RuntimeJson.Hash(run.Spec) != run.Handoff.SpecSha256))
+                return new(CommandOutcome.Invalid, run, "Handoff content or source artifact digest does not match.");
             if (run.State != "awaiting_handoff") return new(CommandOutcome.Conflict, run, "Run is not waiting for a handoff acknowledgement.");
+
+            if (run.ExecutionMode == "local_model")
+            {
+                var job = LeaderJob(run, runEvents);
+                await AppendUnsafeAsync(companyId, runId,
+                    [DomainEvent.Create("handoff.acknowledged", new { packetHash, receiverAgentId, idempotencyKey }), DomainEvent.Create("invocation.queued", job)], events, cancellationToken);
+                return new(CommandOutcome.Applied, RebuildRun(companyId, runId, events.Where(e => e.RunId == runId).ToArray()));
+            }
 
             var plan = new DeliveryPlan($"plan-{Guid.NewGuid():N}", run.Handoff.HandoffId,
                 ["Review requirements and source references", "Break work into bounded tasks", "Request Owner approval before implementation"], "produced");
@@ -173,7 +208,7 @@ public sealed class FileEventStore : IDisposable
     }
 
     public async Task<CommandResult> DecideApprovalAsync(
-        string companyId, string runId, bool approved, string idempotencyKey, CancellationToken cancellationToken)
+        string companyId, string runId, bool approved, string idempotencyKey, CancellationToken cancellationToken, long? expectedSequence = null)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -190,6 +225,8 @@ public sealed class FileEventStore : IDisposable
                     ? new(CommandOutcome.AlreadyApplied, run)
                     : new(CommandOutcome.Conflict, run, "Idempotency key was already used for a different approval decision.");
             }
+            if (expectedSequence is not null && run.LastSequence != expectedSequence)
+                return new(CommandOutcome.Conflict, run, "The run changed; reload its checkpoint.");
             if (run.State != "awaiting_approval") return new(CommandOutcome.Conflict, run, "Run has no pending Owner approval.");
 
             await AppendUnsafeAsync(companyId, runId,
@@ -209,60 +246,21 @@ public sealed class FileEventStore : IDisposable
 
     private async Task<List<DomainEvent>> ReadEventsUnsafeAsync(string companyId, long afterSequence, CancellationToken cancellationToken)
     {
-        var path = GetLogPath(companyId);
-        if (!File.Exists(path)) return [];
-        var result = new List<DomainEvent>();
-        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
-        var lastNewline = Array.LastIndexOf(bytes, (byte)'\n');
-        var validLength = lastNewline + 1;
-        if (validLength != bytes.Length)
-        {
-            await using var repair = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.Read);
-            repair.SetLength(validLength);
-            repair.Flush(flushToDisk: true);
-        }
-        var text = Encoding.UTF8.GetString(bytes, 0, validLength);
-        var expectedSequence = 1L;
-        foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var item = JsonSerializer.Deserialize<DomainEvent>(line.TrimEnd('\r'), JsonOptions)
-                ?? throw new InvalidDataException("The event log contains an empty event record.");
-            if (item.Seq != expectedSequence)
-                throw new InvalidDataException("The event log sequence is not contiguous.");
-            expectedSequence++;
-            if (item.Seq > afterSequence) result.Add(item);
-        }
-        return result;
+        var events = await _journal.ReadAsync(companyId, cancellationToken);
+        return events.Where(item => item.Seq > afterSequence).ToList();
     }
 
     private async Task AppendUnsafeAsync(string companyId, string runId, IReadOnlyList<DomainEvent> additions,
         List<DomainEvent> existing, CancellationToken cancellationToken)
     {
-        var path = GetLogPath(companyId);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        await using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read, 4096, FileOptions.Asynchronous | FileOptions.WriteThrough);
-        foreach (var item in additions)
-        {
-            var persisted = item with { Seq = existing.Count + 1, RunId = runId };
-            await JsonSerializer.SerializeAsync(stream, persisted, JsonOptions, cancellationToken);
-            await stream.WriteAsync("\n"u8.ToArray(), cancellationToken);
-            existing.Add(persisted);
-        }
-        await stream.FlushAsync(cancellationToken);
-        stream.Flush(flushToDisk: true);
-    }
-
-    private string GetLogPath(string companyId)
-    {
-        if (companyId.Length is 0 or > 100 ||
-            companyId.Any(character => !char.IsAsciiLetterOrDigit(character) && character is not '-' and not '_'))
-            throw new ArgumentException("Company ID contains invalid path characters.", nameof(companyId));
-        return Path.Combine(_root, "companies", companyId, "events.jsonl");
+        var sealedEvents = EventIntegrity.Seal(companyId, runId, existing, additions);
+        await _journal.AppendAsync(companyId, existing.Count, sealedEvents, cancellationToken);
+        existing.AddRange(sealedEvents);
     }
 
     private static WorkflowRun? RebuildRun(string companyId, string runId, IReadOnlyList<DomainEvent> events)
     {
-        if (events.Count == 0) return null;
+        if (!events.Any(item => item.Type == "workflow.created")) return null;
         string objective = "";
         string state = "unknown";
         var owner = "ba-agent";
@@ -271,18 +269,26 @@ public sealed class FileEventStore : IDisposable
         string? acknowledgedBy = null;
         DeliveryPlan? plan = null;
         bool? ownerApproved = null;
+        string? resumeState = null;
+        string? leaderAgentId = null;
+        var executionMode = "scaffold";
+        string? lastError = null;
         foreach (var item in events.OrderBy(item => item.Seq))
         {
             switch (item.Type)
             {
                 case "workflow.created":
                     objective = ReadString(item.Data, "objective") ?? objective;
-                    state = "awaiting_handoff";
+                    executionMode = ReadString(item.Data, "mode") ?? "scaffold";
+                    state = executionMode == "local_model" ? "queued" : "awaiting_handoff";
+                    owner = ReadString(item.Data, "baAgentId") ?? "ba-agent";
+                    leaderAgentId = ReadString(item.Data, "leaderAgentId") ?? "leader-agent";
                     break;
                 case "spec.produced":
                     spec = item.Data.Deserialize<SpecArtifact>(JsonOptions);
                     break;
                 case "handoff.requested":
+                    state = "awaiting_handoff";
                     handoff = item.Data.Deserialize<HandoffPacket>(JsonOptions);
                     break;
                 case "handoff.acknowledged":
@@ -293,14 +299,57 @@ public sealed class FileEventStore : IDisposable
                     plan = item.Data.Deserialize<DeliveryPlan>(JsonOptions);
                     state = "awaiting_approval";
                     break;
+                case "invocation.queued":
+                case "invocation.retry_requested":
+                    state = "queued";
+                    owner = ReadString(item.Data, "agentId") ?? owner;
+                    lastError = null;
+                    break;
+                case "invocation.started":
+                    state = "running";
+                    owner = ReadString(item.Data, "agentId") ?? owner;
+                    break;
+                case "invocation.failed":
+                case "invocation.interrupted":
+                    lastError = ReadString(item.Data, "errorCode");
+                    if (state is not ("paused" or "cancelled")) state = "blocked";
+                    break;
+                case "workflow.paused":
+                    resumeState = ReadString(item.Data, "resumeState");
+                    state = "paused";
+                    break;
+                case "workflow.resumed":
+                    state = resumeState ?? "awaiting_handoff";
+                    resumeState = null;
+                    break;
+                case "workflow.cancelled":
+                    state = "cancelled";
+                    resumeState = null;
+                    break;
                 case "owner.approval.decided":
                     ownerApproved = item.Data.TryGetProperty("approved", out var decision) && decision.GetBoolean();
                     state = ownerApproved.Value ? "approved" : "revision_requested";
                     break;
+                case "delivery.prepared":
+                    state = "awaiting_delivery_input";
+                    owner = item.Data.GetProperty("bindings").Deserialize<DeliveryBinding[]>(JsonOptions)!.Single(b => b.RoleId == "dev").Agent.AgentId;
+                    break;
+                case "delivery.artifact.produced":
+                    state = "checking_delivery";
+                    lastError = null;
+                    break;
+                case "delivery.report.produced":
+                    state = ReadString(item.Data, "status") == "ready_for_owner" ? "awaiting_delivery_approval" : "delivery_blocked";
+                    owner = "owner";
+                    break;
+                case "delivery.reviewed":
+                    state = item.Data.GetProperty("approved").GetBoolean() ? "delivered" : "delivery_revision_requested";
+                    break;
             }
         }
         return new WorkflowRun(companyId, runId, objective, state, owner, spec, handoff, acknowledgedBy, plan,
-            ownerApproved, events.Max(item => item.Seq));
+            ownerApproved, events.Max(item => item.Seq), LastError: lastError, ResumeState: resumeState, LeaderAgentId: leaderAgentId,
+            ExecutionMode: executionMode, Invocations: JobsFrom(events), Delivery: DeliveryFrom(events));
     }
 
     private static string? ReadString(JsonElement element, string property) =>

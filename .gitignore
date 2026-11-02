@@ -8,3 +8,8 @@
 data/
 *.user
 *.suo
+*.aicos
+.env*
+artifacts/
+playwright-report/
+test-results/

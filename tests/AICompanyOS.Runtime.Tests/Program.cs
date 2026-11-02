@@ -92,6 +92,10 @@ finally
     Directory.Delete(dataRoot, recursive: true);
 }
 
+await UpgradeTests.RunAsync();
+await InferenceTests.RunAsync();
+await DeliveryTests.RunAsync();
+
 static void Assert(bool condition, string message)
 {
     if (!condition) throw new InvalidOperationException(message);

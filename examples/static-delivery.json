@@ -1,0 +1,14 @@
+{
+  "title": "Tài liệu dự án",
+  "summary": "Ví dụ chỉnh sửa được cho chế độ bàn giao tĩnh.",
+  "files": [
+    {
+      "path": "index.html",
+      "content": "<html lang=\"vi\"><head><meta charset=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><title>Tài liệu dự án</title><link rel=\"stylesheet\" href=\"site.css\"/></head><body><main><h1>Tài liệu dự án</h1><p>Keep data local.</p><h2>Phạm vi</h2><p>Thay nội dung này theo kế hoạch và tiêu chí của Owner.</p></main></body></html>"
+    },
+    {
+      "path": "site.css",
+      "content": "body{font-family:system-ui;max-width:60rem;margin:3rem auto;padding:1.5rem;color:#173b35;background:#fffef8}h1{font-size:2.5rem}p{line-height:1.7}"
+    }
+  ]
+}
