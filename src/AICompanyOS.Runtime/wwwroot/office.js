@@ -4,7 +4,7 @@ const desks = [
   ['ba', 2, 2, 'RESEARCH'], ['leader', 7, 2, 'PLANNING'], ['dev', 12, 2, 'ENGINEERING'],
   ['tester', 2, 7, 'TESTING'], ['soc', 7, 7, 'SECURITY'], ['qa', 12, 7, 'QUALITY'], ['subpm', 15, 7, 'REPORTS'], ['owner', 16, 1, 'OWNER']
 ];
-export const obstacles = new Set(desks.flatMap(([, c, r]) => [-1, 0, 1].map(dx => `${c + dx},${r}`)));
+export const obstacles = new Set([...desks.flatMap(([, c, r]) => [-1, 0, 1].map(dx => `${c + dx},${r}`)), "7,5", "8,5", "9,5"]);
 const key = p => `${p.c},${p.r}`;
 const inside = p => Number.isInteger(p.c) && Number.isInteger(p.r) && p.c >= 0 && p.c < columns && p.r >= 0 && p.r < rows;
 const distance = (a, b) => Math.abs(a.c - b.c) + Math.abs(a.r - b.r);
@@ -30,7 +30,7 @@ function nearestFree(target, occupied) {
 }
 const iso = (c, r) => [470 + (c - r) * 24, 60 + (c + r) * 12];
 const colors = { ba: '#819b69', leader: '#bc8b47', dev: '#678b96', tester: '#9f838f', soc: '#79866b', qa: '#ba936e', subpm: '#8d93a5' };
-const stateLabels = { queued: 'Đang chờ AI', working: 'AI local đang xử lý', idle: 'Chưa có invocation', handoff_pending: 'Chờ ACK', waiting_approval: 'Chờ Owner', paused: 'Đã tạm dừng', blocked: 'Cần sửa lại' };
+const stateLabels = { researching: 'Đang phân tích', planning: 'Đang lập kế hoạch', coding: 'Đang tạo patch', testing: 'Đang chạy test', reviewing: 'Đang kiểm tra', waiting_input: 'Chờ input', meeting: 'Đang họp', talking: 'Đang tham vấn', queued: 'Đang chờ AI', working: 'AI local đang xử lý', idle: 'Chưa có invocation', handoff_pending: 'Chờ ACK', waiting_approval: 'Chờ Owner', paused: 'Đã tạm dừng', blocked: 'Cần sửa lại' };
 function spacedCells(cells) {
   const points = [...cells].map(cell => { const [c, r] = cell.split(',').map(Number); return iso(c, r); });
   const blocked = new Set(cells);
@@ -51,6 +51,7 @@ function svgNode(tag, attrs = {}, text) {
 export class OfficeScene {
   constructor(svg, onSelect) {
     this.svg = svg; this.onSelect = onSelect; this.actors = new Map(); this.paused = false;
+    this.moves = new Map();
     this.motion = matchMedia('(prefers-reduced-motion: reduce)');
     this.motion.addEventListener('change', () => { this.lastTime = 0; this.kick(); });
     document.addEventListener('visibilitychange', () => { this.lastTime = 0; this.kick(); });
@@ -72,12 +73,24 @@ export class OfficeScene {
       g.append(svgNode('text', { x, y: y - 27, 'text-anchor': 'middle', class: 'office-zone' }, label));
       this.svg.append(g);
     });
+    const [mx, my] = iso(8, 5);
+    const meeting = svgNode('g');
+    meeting.append(svgNode('ellipse', { cx: mx, cy: my + 10, rx: 65, ry: 25, fill: '#b7c49d', stroke: '#9bae82' }));
+    meeting.append(svgNode('ellipse', { cx: mx, cy: my + 2, rx: 65, ry: 23, fill: '#dce5bd', stroke: '#b5c193' }));
+    meeting.append(svgNode('text', { x: mx, y: my - 33, 'text-anchor': 'middle', class: 'office-zone' }, 'MEETING ROOM'));
+    this.svg.append(meeting);
+    for (const [c, r] of [[0, 0], [17, 10], [0, 10]]) {
+      const [x, y] = iso(c, r); const plant = svgNode('g');
+      plant.append(svgNode('path', { d: `M${x-9} ${y}L${x-6} ${y+17}L${x+6} ${y+17}L${x+9} ${y}Z`, fill: '#b59b77' }));
+      plant.append(svgNode('ellipse', { cx: x, cy: y - 9, rx: 13, ry: 20, fill: '#668568' }));
+      plant.append(svgNode('ellipse', { cx: x + 8, cy: y - 6, rx: 8, ry: 14, fill: '#94ad79' })); this.svg.append(plant);
+    }
     this.svg.append(svgNode('text', { x: 50, y: 480, class: 'office-zone' }, 'AI COMPANY OS / LIVING OFFICE'));
     this.svg.append(svgNode('text', { x: 50, y: 498, class: 'office-bubble' }, 'Projection từ dữ liệu đã lưu · Hoạt ảnh không khởi chạy AI'));
     this.layer = svgNode('g'); this.svg.append(this.layer);
   }
-  clear() { this.actors.clear(); this.active = null; this.lastTime = 0; this.drawMap(); }
-  setPaused(paused) { this.paused = paused; this.lastTime = 0; this.kick(); }
+  clear() { this.actors.clear(); this.moves.clear(); this.followed = null; this.lastTime = 0; this.svg.setAttribute('viewBox', '0 0 940 530'); this.drawMap(); }
+  setPaused(paused) { this.paused = paused; this.svg.dataset.paused = String(paused); this.lastTime = 0; this.kick(); }
   setVisible(visible) { this.visible = visible; this.lastTime = 0; this.kick(); }
   update(snapshot) {
     const homes = new Set(), destinations = new Set();
@@ -99,6 +112,8 @@ export class OfficeScene {
         let preferred = home;
         if (item.state === 'waiting_approval') preferred = { c: 16, r: 3 };
         if (item.state === 'handoff_pending' && item.agent.roleIds.includes('ba')) preferred = { c: 6, r: 4 };
+        if (item.state === 'meeting') preferred = { c: 8, r: 4 };
+        if (item.state === 'talking') preferred = { c: 10, r: 5 };
         if (item.state === 'paused') preferred = actor.cell;
         actor.target = nearestFree(preferred, destinations);
         actor.lastSeq = item.sequence; actor.lastState = item.state;
@@ -106,10 +121,11 @@ export class OfficeScene {
       // Reserve every destination, including agents whose state did not change.
       if (destinations.has(key(actor.target))) actor.target = nearestFree(actor.home, destinations);
       destinations.add(key(actor.target));
-      actor.group.querySelector('title').textContent = `${item.agent.name} · ${stateLabels[item.state]} · event #${item.sequence}`;
-      actor.group.querySelector('.office-bubble').textContent = stateLabels[item.state] ?? item.state;
+      actor.group.querySelector('title').textContent = `${item.agent.name} · ${stateLabels[item.state] ?? item.state} · event #${item.sequence}`;
+      actor.group.querySelector('.office-bubble').textContent = item.publicSummary ? item.publicSummary.slice(0, 45) + (item.publicSummary.length > 45 ? '…' : '') : (stateLabels[item.state] ?? item.state);
+      actor.group.dataset.state = item.state;
       actor.group.setAttribute('aria-label', `${item.agent.name}: ${stateLabels[item.state] ?? item.state}`);
-      if (this.active?.actor !== actor) this.position(actor, actor.cell);
+      if (!this.moves.has(actor.id)) this.position(actor, actor.cell);
     }
     this.kick();
   }
@@ -121,13 +137,17 @@ export class OfficeScene {
     g.append(svgNode('path', { d: 'M-10 8 L-9 -2 Q0 -9 9 -2 L10 8Z', fill: colors[item.agent.roleIds[0]] ?? '#849378' }));
     g.append(svgNode('circle', { cx: 0, cy: -12, r: 7, fill: '#e9c5a3' }));
     g.append(svgNode('path', { d: 'M-7 -14 Q-6 -24 3 -20 Q9 -20 7 -10 L4 -16Z', fill: '#465344' }));
+    g.append(svgNode('path', { d: 'M-5 7L-6 16', class: 'avatar-leg leg-left', stroke: '#465344', 'stroke-width': 4 }));
+    g.append(svgNode('path', { d: 'M5 7L6 16', class: 'avatar-leg leg-right', stroke: '#465344', 'stroke-width': 4 }));
     g.append(svgNode('text', { x: 0, y: 30, 'text-anchor': 'middle', class: 'office-label' }, primaryIds.has(item.agent.agentId) ? item.agent.name.slice(0, 19) : `Agent ${this.actors.size + 1}`));
     g.append(svgNode('text', { x: 0, y: 42, 'text-anchor': 'middle', class: 'office-bubble' }));
     g.addEventListener('click', () => this.onSelect(item.agent.agentId));
     g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.onSelect(item.agent.agentId); } });
+    g.querySelector('.office-bubble').addEventListener('click', e => { const current = this.actors.get(item.agent.agentId)?.item; if (current?.publicMessageId && this.onPublicMessage) { e.stopPropagation(); this.onPublicMessage(current.publicMessageId, current.publicMessageRunId ?? current.runId); } });
     this.layer.append(g); return g;
   }
   position(actor, cell) { const [x, y] = iso(cell.c, cell.r); actor.group.setAttribute('transform', `translate(${x} ${y + 7})`); }
+  follow(id) { this.followed = this.followed === id ? null : id; for (const a of this.actors.values()) a.group.dataset.followed = String(a.id === this.followed); if (!this.followed) this.svg.setAttribute('viewBox', '0 0 940 530'); else { const actor = this.actors.get(id); if (actor) { const [x, y] = iso(actor.cell.c, actor.cell.r); this.svg.setAttribute('viewBox', `${Math.max(0, Math.min(340, x - 300))} ${Math.max(0, Math.min(170, y - 180))} 600 360`); } } this.kick(); }
   kick() {
     if (this.scheduled || this.paused || !this.visible || document.hidden) return;
     this.scheduled = true; requestAnimationFrame(time => this.tick(time));
@@ -136,21 +156,35 @@ export class OfficeScene {
     this.scheduled = false;
     if (this.paused || !this.visible || document.hidden) return;
     const dt = this.lastTime ? Math.min(50, time - this.lastTime) : 0; this.lastTime = time;
-    const occupied = new Set([...this.actors.values()].map(a => key(a.cell)));
-    if (!this.active) {
-      for (const actor of this.actors.values()) {
-        if (key(actor.cell) === key(actor.target)) continue;
-        const blockers = new Set(occupied); blockers.delete(key(actor.cell));
-        const path = findPath(actor.cell, actor.target, blockers);
-        if (path.length) { this.active = { actor, next: this.motion.matches ? path.at(-1) : path[0], elapsed: 0 }; break; }
+    if (this.moves.size === 0) {
+      const steps = reserveSteps([...this.actors.values()].map(a => ({ id: a.id, cell: a.cell, target: a.target })));
+      for (const step of steps) {
+        const actor = this.actors.get(step.id); this.moves.set(step.id, { actor, next: step.next, elapsed: 0 }); actor.group.dataset.moving = 'true';
       }
     }
-    if (!this.active) { this.lastTime = 0; return; }
-    const move = this.active;
-    move.elapsed += this.motion.matches ? 260 : dt;
-    const progress = Math.min(1, move.elapsed / 260);
-    this.position(move.actor, { c: move.actor.cell.c + (move.next.c - move.actor.cell.c) * progress, r: move.actor.cell.r + (move.next.r - move.actor.cell.r) * progress });
-    if (progress === 1) { move.actor.cell = move.next; this.active = null; }
+    if (this.moves.size === 0) { this.lastTime = 0; return; }
+    for (const [id, move] of this.moves) {
+      move.elapsed += this.motion.matches ? 260 : dt;
+      const progress = Math.min(1, move.elapsed / 260);
+      this.position(move.actor, { c: move.actor.cell.c + (move.next.c - move.actor.cell.c) * progress, r: move.actor.cell.r + (move.next.r - move.actor.cell.r) * progress });
+      if (progress === 1) { move.actor.cell = move.next; move.actor.group.dataset.moving = 'false'; this.moves.delete(id); }
+    }
+    if (this.followed && this.actors.has(this.followed)) {
+      const [x, y] = iso(this.actors.get(this.followed).cell.c, this.actors.get(this.followed).cell.r);
+      this.svg.setAttribute('viewBox', `${Math.max(0, Math.min(340, x - 300))} ${Math.max(0, Math.min(170, y - 180))} 600 360`);
+    }
     this.kick();
   }
+}
+
+export function reserveSteps(actors) {
+  const occupied = new Set(actors.map(a => key(a.cell))), reserved = new Set(), moves = [];
+  for (const actor of actors) {
+    if (key(actor.cell) === key(actor.target)) continue;
+    const blockers = new Set([...occupied, ...reserved]); blockers.delete(key(actor.cell));
+    const path = findPath(actor.cell, actor.target, blockers);
+    if (!path.length) continue;
+    const next = path[0]; reserved.add(key(next)); moves.push({ id: actor.id, next });
+  }
+  return moves;
 }

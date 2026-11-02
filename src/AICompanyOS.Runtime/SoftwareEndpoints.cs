@@ -1,0 +1,90 @@
+using System.IO.Compression;
+using System.Text;
+using System.Text.Json;
+using Microsoft.AspNetCore.Routing;
+
+namespace AICompanyOS.Runtime;
+
+public static class SoftwareEndpoints
+{
+    public static void Map(RouteGroupBuilder companies, RouteGroupBuilder api)
+    {
+        api.MapGet("/execution/capabilities", async (string? image, DockerSandbox sandbox, CancellationToken ct) => await sandbox.ProbeAsync(image ?? "node:22-alpine", ct));
+        api.MapPost("/commands/resolve", (CompanyCommandRequest request) => CompanyCommandParser.Resolve(request.Text));
+        api.MapPost("/workflows/validate", (SoftwareWorkflow workflow) => SoftwareContracts.Compile(workflow));
+        companies.MapGet("/workbench", async (string companyId, FileEventStore store, CancellationToken ct) => await store.WorkbenchAsync(companyId, ct));
+        companies.MapPut("/profile", async (string companyId, CompanyProfileRequest request, FileEventStore store, CancellationToken ct) => await store.ConfigureCompanyAsync(companyId, request, ct));
+        companies.MapPost("/projects", async (string companyId, ProjectRequest request, FileEventStore store, RepositoryService repositories, CancellationToken ct) => await store.ConfigureProjectAsync(companyId, request, repositories, ct));
+        companies.MapGet("/projects/{projectId}/inventory", async Task<IResult> (string companyId, string projectId, FileEventStore store, RepositoryService repositories, CancellationToken ct) =>
+        {
+            var project = (await store.WorkbenchAsync(companyId, ct)).Projects.FirstOrDefault(p => p.ProjectId == projectId); if (project is null) return Results.NotFound();
+            var snapshot = await repositories.SnapshotAsync(project, ct); var dependencies = SoftwareChecks.Dependencies(snapshot.Files);
+            return Results.Ok(new { snapshot.BaseCommit, snapshot.Sha256, files = snapshot.Files.Select(f => new { f.Path, f.Sha256 }), snapshot.OmittedPaths, dependencies, dependencyInventorySha256 = RuntimeJson.Hash(dependencies) });
+        });
+        companies.MapPut("/agents/{agentId}/configuration", async (string companyId, string agentId, AgentConfigurationRequest request, FileEventStore store, CancellationToken ct) => await store.ConfigureAgentAsync(companyId, agentId, request, ct));
+        companies.MapPost("/skills", async (string companyId, SkillPackage request, FileEventStore store, CancellationToken ct) => await store.InstallSkillAsync(companyId, request, ct));
+        companies.MapPost("/workflows", async (string companyId, SoftwareWorkflow request, FileEventStore store, CancellationToken ct) => await store.SaveWorkflowAsync(companyId, request, false, ct));
+        companies.MapPost("/interactions", async (string companyId, InteractionRequest request, HttpContext context, FileEventStore store, CancellationToken ct) => await store.AddInteractionAsync(companyId, request, Key(context), ct));
+        companies.MapGet("/consultations", async (string companyId, FileEventStore store, CancellationToken ct) => await store.ListConsultationsAsync(companyId, ct));
+        companies.MapPost("/interactions/{interactionId}/respond", async (string companyId, string interactionId, ConsultationRequest request, HttpContext context, FileEventStore store, ISoftwareModelClient models, CancellationToken ct) =>
+            await store.QueueConsultationAsync(companyId, interactionId, request, await models.ListAsync(ct), Key(context), ct));
+        companies.MapPost("/consultations/{jobId}/retry", async (string companyId, string jobId, FileEventStore store, CancellationToken ct) => await store.RetryConsultationAsync(companyId, jobId, ct));
+        companies.MapPost("/meetings", async (string companyId, MeetingRequest request, HttpContext context, FileEventStore store, CancellationToken ct) => await store.CreateMeetingAsync(companyId, request, Key(context), ct));
+        companies.MapPost("/meetings/{meetingId}/start", async (string companyId, string meetingId, MeetingCompleteRequest request, FileEventStore store, CancellationToken ct) => await store.ChangeMeetingAsync(companyId, meetingId, true, request, ct));
+        companies.MapPost("/meetings/{meetingId}/complete", async (string companyId, string meetingId, MeetingCompleteRequest request, FileEventStore store, CancellationToken ct) => await store.ChangeMeetingAsync(companyId, meetingId, false, request, ct));
+        companies.MapPost("/meetings/{meetingId}/summarize", async (string companyId, string meetingId, ConsultationRequest request, HttpContext context, FileEventStore store, ISoftwareModelClient models, CancellationToken ct) =>
+            await store.QueueConsultationAsync(companyId, "meeting-summary", request with { MeetingId = meetingId }, await models.ListAsync(ct), Key(context), ct));
+        companies.MapPost("/software-runs", async (string companyId, SoftwareCreateRequest request, HttpContext context, SoftwareCoordinator coordinator, CancellationToken ct) => await coordinator.CreateAsync(companyId, request, Key(context), ct));
+        companies.MapGet("/software-runs/{runId}", async Task<IResult> (string companyId, string runId, FileEventStore store, CancellationToken ct) =>
+            await store.GetSoftwareRunAsync(companyId, runId, ct) is { } run ? Results.Ok(run) : Results.NotFound());
+        companies.MapGet("/software-runs/{runId}/report", async Task<IResult> (string companyId, string runId, FileEventStore store, CancellationToken ct) =>
+            await store.GetSoftwareRunAsync(companyId, runId, ct) is { } run ? Results.Ok(new { run.Report, run.Nodes, run.Jobs, run.Receipts, run.Release }) : Results.NotFound());
+        companies.MapPost("/software-runs/{runId}/outputs/{nodeId}", async (string companyId, string runId, string nodeId, SoftwareOutputRequest request, SoftwareCoordinator coordinator, CancellationToken ct) => await coordinator.SupplyOutputAsync(companyId, runId, nodeId, request, ct));
+        companies.MapPost("/software-runs/{runId}/jobs/{jobId}/reconcile-worktree", async (string companyId, string runId, string jobId, SoftwareControlRequest request, FileEventStore store, RepositoryService repositories, CancellationToken ct) =>
+        {
+            var run = await store.GetSoftwareRunAsync(companyId, runId, ct) ?? throw new KeyNotFoundException();
+            if (run.State != "blocked" || run.LastSequence != request.ExpectedSequence) throw new WorkspaceConflictException("Reload a blocked recovery checkpoint.");
+            var job = run.Jobs.SingleOrDefault(j => j.JobId == jobId) ?? throw new KeyNotFoundException();
+            var directory = await repositories.ReconcileWorktreeAsync(run, job, ct);
+            return await store.RecordWorktreeReconciliationAsync(companyId, runId, jobId, run.LastSequence, directory, ct);
+        });
+        companies.MapPost("/software-runs/{runId}/execution-preview", async (string companyId, string runId, SoftwareControlRequest request, SoftwareCoordinator coordinator, CancellationToken ct) => await coordinator.PreviewAsync(companyId, runId, request.ExpectedSequence, ct));
+        companies.MapPost("/software-runs/{runId}/plan-approval", async (string companyId, string runId, SoftwareApproval request, HttpContext context, FileEventStore store, CancellationToken ct) => Response(await store.ApproveSoftwarePlanAsync(companyId, runId, request, Key(context), ct)));
+        foreach (var action in new[] { "pause", "resume", "step", "cancel", "retry" })
+            companies.MapPost("/software-runs/{runId}/" + action, async (string companyId, string runId, SoftwareControlRequest request, HttpContext context, FileEventStore store, CancellationToken ct) => Response(await store.ControlSoftwareAsync(companyId, runId, action, request.ExpectedSequence, Key(context), ct)));
+        companies.MapPost("/software-runs/{runId}/revision", async (string companyId, string runId, SoftwareRevisionRequest request, HttpContext context, FileEventStore store, CancellationToken ct) => Response(await store.RequestSoftwareRevisionAsync(companyId, runId, request, Key(context), ct)));
+        companies.MapPost("/software-runs/{runId}/final-review", async (string companyId, string runId, SoftwareReleaseRequest request, HttpContext context, FileEventStore store, CancellationToken ct) => Response(await store.ReviewSoftwareDeliveryAsync(companyId, runId, request, Key(context), ct)));
+        companies.MapGet("/software-runs/{runId}/release-preview", async Task<IResult> (string companyId, string runId, FileEventStore store, CancellationToken ct) =>
+        {
+            var workbench = await store.WorkbenchAsync(companyId, ct); var run = workbench.Runs.FirstOrDefault(r => r.Seed.RunId == runId);
+            return run is null ? Results.NotFound() : Results.Ok(SoftwareReleaseService.Preview(run, workbench.Profile.AllowGitHubRelease));
+        });
+        companies.MapPost("/software-runs/{runId}/release", async (string companyId, string runId, SoftwareReleaseRequest request, HttpContext context, SoftwareReleaseService release, CancellationToken ct) => await release.ExecuteAsync(companyId, runId, request, Key(context), ct));
+        companies.MapGet("/software-runs/{runId}/export", async Task<IResult> (string companyId, string runId, FileEventStore store, CancellationToken ct) =>
+        {
+            var run = await store.GetSoftwareRunAsync(companyId, runId, ct); if (run is null) return Results.NotFound();
+            if (run.State is not ("completed" or "awaiting_release") || !SoftwareChecks.GatesPass(run) || !run.Nodes.Any(n => n.Id == "final-approval" && n.Status == "approved")) throw new WorkspaceConflictException("Export requires the exact passing, Owner-accepted candidate.");
+            using var bytes = new MemoryStream();
+            using (var zip = new ZipArchive(bytes, ZipArchiveMode.Create, true))
+            {
+                foreach (var file in run.Candidate!.Files.Where(f => run.Candidate.ChangedPaths.Contains(f.Path))) Write("files/" + file.Path, file.Content);
+                Write("report.json", JsonSerializer.Serialize(new { run.Report, run.Receipts, run.Candidate.Sha256, run.Release }, RuntimeJson.Options));
+                Write("patch.json", JsonSerializer.Serialize(run.Candidate.Patches, RuntimeJson.Options));
+                Write("SHA256SUMS.txt", string.Join('\n', run.Candidate.Files.Where(f => run.Candidate.ChangedPaths.Contains(f.Path)).Select(f => f.Sha256[7..] + "  files/" + f.Path)) + "\n");
+                void Write(string path, string text) { using var writer = new StreamWriter(zip.CreateEntry(path).Open(), new UTF8Encoding(false)); writer.Write(text); }
+            }
+            return Results.File(bytes.ToArray(), "application/zip", runId + "-source-delivery.zip");
+        });
+    }
+    private static string Key(HttpContext context)
+    {
+        var key = context.Request.Headers["Idempotency-Key"].ToString(); if (!Identifiers.IsValid(key)) throw new ArgumentException("A valid Idempotency-Key is required."); return key;
+    }
+    private static IResult Response(SoftwareCommandResult result) => result.Outcome switch
+    {
+        CommandOutcome.NotFound => Results.NotFound(),
+        CommandOutcome.Conflict => Results.Conflict(new { error = new { code = "SOFTWARE_CONFLICT", message = result.Message } }),
+        CommandOutcome.Invalid => Results.UnprocessableEntity(new { error = new { code = "SOFTWARE_INVALID", message = result.Message } }),
+        _ => Results.Ok(result.Run)
+    };
+}

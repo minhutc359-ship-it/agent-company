@@ -95,6 +95,7 @@ finally
 await UpgradeTests.RunAsync();
 await InferenceTests.RunAsync();
 await DeliveryTests.RunAsync();
+await SoftwareTests.RunAsync();
 
 static void Assert(bool condition, string message)
 {

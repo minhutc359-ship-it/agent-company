@@ -1,10 +1,11 @@
 import { OfficeScene } from './office.js';
 import { renderDelivery } from './delivery.js';
+import { CompanyWorkbench } from './workbench.js';
 const $ = id => document.getElementById(id);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const uid = prefix => `${prefix}-${crypto.randomUUID()}`;
 const empty = message => `<div class="empty">${escape(message)}</div>`;
-const titles = {
+const titles = { company: ['Công ty AI của bạn.', 'Từ yêu cầu đến patch, kiểm chứng và bàn giao trong một workspace.'],
   work: ['Điều phối công việc.', 'Từ yêu cầu đến bàn giao. Mỗi bước đều có dấu vết.'],
   office: ['Một văn phòng, một nguồn thật.', 'Trạng thái nhân viên được chiếu từ sự kiện đã lưu.'],
   knowledge: ['Kiến thức có nguồn gốc.', 'Lưu tài liệu, đối chiếu trích dẫn và duyệt bộ nhớ chính thức.'],
@@ -13,10 +14,11 @@ const titles = {
 };
 const labels = { delivered: 'Đã bàn giao', awaiting_delivery_input: 'Chờ file sản phẩm', awaiting_delivery_approval: 'Chờ duyệt bàn giao', delivery_blocked: 'Kiểm tra chưa đạt', delivery_revision_requested: 'Cần sửa sản phẩm', checking_delivery: 'Đang kiểm tra', queued: 'Đang chờ AI', running: 'AI local đang xử lý', working: 'AI local đang xử lý', interrupted: 'Cần retry', failed: 'Thất bại', completed: 'Đã lưu output', awaiting_handoff: 'Chờ bàn giao', awaiting_approval: 'Chờ Owner', approved: 'Plan đã duyệt', revision_requested: 'Cần sửa kế hoạch', paused: 'Đã tạm dừng', cancelled: 'Đã hủy', idle: 'Chưa có invocation', handoff_pending: 'Chờ ACK', waiting_approval: 'Chờ Owner', blocked: 'Cần sửa lại' };
 const eventNames = { 'delivery.prepared': 'Owner cho phép tạo gói file', 'delivery.artifact.produced': 'Dev đã tạo artifact', 'delivery.check.executed': 'Đã chạy static check', 'delivery.report.produced': 'SubPM tổng hợp receipts', 'delivery.reviewed': 'Owner quyết định bàn giao', 'delivery.command': 'Ghi checkpoint bàn giao', 'invocation.queued': 'Xếp hàng AI local', 'invocation.started': 'Bắt đầu gọi AI local', 'invocation.heartbeat': 'Gia hạn lease', 'invocation.completed': 'Đã lưu output AI', 'invocation.failed': 'AI bị chặn hoặc thất bại', 'invocation.interrupted': 'Invocation bị gián đoạn', 'invocation.retry_requested': 'Yêu cầu retry AI', 'workflow.created': 'Tạo workflow', 'spec.produced': 'Lưu spec', 'handoff.requested': 'Yêu cầu bàn giao', 'handoff.acknowledged': 'Ghi nhận ACK', 'plan.produced': 'Lưu plan', 'approval.required': 'Chờ Owner duyệt', 'owner.approval.decided': 'Owner đã quyết định', 'workflow.paused': 'Tạm dừng workflow', 'workflow.resumed': 'Tiếp tục workflow', 'workflow.cancelled': 'Hủy workflow', 'agent.created': 'Thêm agent', 'agent.roles.changed': 'Cập nhật vai trò', 'source.imported': 'Lưu phiên bản nguồn', 'memory.proposed': 'Đề xuất bộ nhớ', 'memory.accepted': 'Duyệt bộ nhớ', 'memory.rejected': 'Từ chối bộ nhớ' };
-let companyId = null, companies = [], roles = [], state = {}, selectedRunId = null, view = 'work';
+let companyId = null, companies = [], roles = [], state = {}, selectedRunId = null, view = 'company';
 let cursor = 0, stream = null, streamGeneration = 0, refreshVersion = 0, refreshTimer, retryTimer;
 let createKey = uid('create'), sourceId = uid('source'), agentId = uid('agent'), manifest = null;
 const scene = new OfficeScene($('officeScene'), id => showAgent(id));
+const companyWorkbench = new CompanyWorkbench({ api, request, dialog, refresh, toast, download, showView });
 
 async function request(path, options = {}) {
   const response = await fetch(path, { credentials: 'same-origin', ...options,
@@ -52,6 +54,7 @@ function showView(next) {
   });
   [$('pageTitle').textContent, $('pageDescription').textContent] = titles[next];
   scene.setVisible(next === 'office' && !$('boardOnly').checked);
+  companyWorkbench.setVisible(next === 'company');
 }
 document.querySelectorAll('[data-view]').forEach(button => button.onclick = () => showView(button.dataset.view));
 function roleChecks(chosen = []) { return roles.map(role => `<label><input type="checkbox" name="roles" value="${escape(role.roleId)}" ${chosen.includes(role.roleId) ? 'checked' : ''}> ${escape(role.roleId.toUpperCase())}</label>`).join(''); }
@@ -61,16 +64,17 @@ async function refresh() {
   if (!companyId) return;
   const version = ++refreshVersion, company = companyId, path = base();
   const snapshot = await api(`${path}/workspace/snapshot`);
-  const { runs, agents, events, sources, canonical, proposals, office } = snapshot;
+  const { runs, agents, events, sources, canonical, proposals, office, workbench } = snapshot;
   const health = { storage: snapshot.storage };
   if (version !== refreshVersion || company !== companyId) return;
-  state = { health, runs, agents, events, sources, canonical, proposals, office };
+  state = { health, runs, agents, events, sources, canonical, proposals, office, workbench };
   cursor = Math.max(cursor, events.at(-1)?.seq ?? 0);
   if (!runs.some(run => run.runId === selectedRunId)) selectedRunId = runs[0]?.runId ?? null;
   render();
 }
 function scheduleRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(() => refresh().catch(error => toast(error.message)), 140); }
 function render() {
+  companyWorkbench.update(companyId, companies, state);
   const { runs = [], agents = [], events = [], sources = [], canonical = [], proposals = [] } = state;
   $('storageBadge').textContent = `Storage: ${state.health?.storage === 'sqlite' ? 'SQLite' : 'File Store'}`;
   $('statRuns').textContent = runs.length;
@@ -247,7 +251,7 @@ bindForm('searchForm', async () => {
 });
 bindForm('createAgent', async () => { await post(`${base()}/agents`, { agentId, name: $('agentName').value, roleIds: chosenRoles($('createAgent')) }); agentId = uid('agent'); $('agentName').value = ''; await refresh(); toast('Đã tạo agent. Chưa cấp quyền công cụ.'); });
 click('pauseVisual', () => { const paused = !scene.paused; scene.setPaused(paused); $('pauseVisual').textContent = paused ? 'Tiếp tục hoạt ảnh' : 'Dừng hoạt ảnh'; $('pauseVisual').setAttribute('aria-pressed', String(paused)); });
-$('boardOnly').onchange = () => { $('officeScene').hidden = $('boardOnly').checked; scene.setVisible(view === 'office' && !$('boardOnly').checked); };
+$('boardOnly').onchange = () => { $('officeScene').toggleAttribute('hidden', $('boardOnly').checked); scene.setVisible(view === 'office' && !$('boardOnly').checked); };
 document.addEventListener('keydown', e => { if (e.code === 'Space' && view === 'office' && e.target === document.body && !$('detailDialog').open) { e.preventDefault(); $('pauseVisual').click(); } });
 click('refresh', refresh);
 async function verifyStorage() {
@@ -270,7 +274,7 @@ bindForm('backupForm', async () => {
 });
 bindForm('validateBackup', async () => {
   const file = $('backupFile').files[0], passphrase = $('validatePassphrase').value; $('validatePassphrase').value = '';
-  if (file.size > 16 * 1024 * 1024) throw new Error('Bản sao lưu vượt giới hạn 16 MiB của milestone này.');
+  if (file.size > 128 * 1024 * 1024) throw new Error('Bản sao lưu vượt giới hạn 128 MiB.');
   const encoded = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result.split(',')[1]); reader.onerror = reject; reader.readAsDataURL(file); });
   const result = await post('/api/v1/backups/validate', { archiveBase64: encoded, passphrase });
   $('backupResult').innerHTML = `<span class="tag success">Giải mã và checksum hợp lệ · ${result.eventCount} events</span><p class="hash">${escape(result.digest)}</p>`;
@@ -279,7 +283,7 @@ async function start() {
   await api('/api/session'); roles = await api('/api/v1/roles');
   $('newAgentRoles').innerHTML = roleChecks(['ba']);
   $('roleCatalog').innerHTML = roles.map(role => `<article class="role-card"><h3>${escape(role.name)} <span class="tag">${escape(role.roleId)}</span></h3><p>Input: ${escape(role.inputSchema)}</p><p>Output: ${escape(role.outputSchema)}</p><p>Skills: ${escape(role.skillIds.join(', '))}</p><p>Không được: ${escape(role.forbiddenActions.join(', '))}</p></article>`).join('');
-  await loadCompanies(); await selectCompany(companies[0].companyId); showView('work');
+  await loadCompanies(); await selectCompany(companies[0].companyId); showView('company');
 }
 start().catch(error => { $('connection').textContent = 'Không kết nối được'; $('connection').className = 'pill disconnected'; toast(error.message); });
 

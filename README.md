@@ -1,97 +1,85 @@
 # AI Company OS
 
-A local-first personal agent workspace based on specification 2.2. The current **1.0 Local Static Delivery edition** completes a bounded BA → Leader → Dev → Tester/SOC/QA → SubPM → Owner workflow for passive static websites and documents, with optional Ollama inference, real validator receipts and an approved ZIP export. It is **not the complete autonomous agent product** described in the specification.
+**2.0 Company Workbench** adds executable software delivery to the local personal workspace: Company UI, projects, per-agent model/skill configuration, a versioned task DAG, isolated Git worktrees, Docker build/test receipts, security/quality checks, Owner revisions, public conversations and meetings, and an explicit scoped Git release.
 
-The original design documents, concept images and HTML prototype remain reference material. See [the 1.0 contract and release notes](docs/RELEASE_1.0.md), [local AI behavior](docs/LOCAL_INFERENCE.md) and [the historical durable-workspace review](docs/IMPLEMENTATION_REVIEW.md).
+The supported local software flow is **BA → Leader → Owner scope approval → parallel Dev tasks → Build → Tester/SOC/QA → corrective rounds → SubPM → Owner acceptance → source export or explicit Git release**. Model output never substitutes for a command receipt. The original static-document workflow remains available under **Luồng tĩnh**.
 
-## What works
-
-- Multiple isolated companies, seven versioned role contracts, and agents with multiple roles. Assigning roles never grants tools or Owner authority.
-- Two explicit modes: a deterministic scaffold, or local AI BA → hashed handoff → Owner-mediated Leader ACK → local AI plan → Owner approval. Agent bindings and accepted memory are pinned when a run starts.
-- Durable pause/resume/cancel, optimistic checkpoint checks, idempotent commands and event replay after process restart. AI jobs add leases/heartbeats, fenced completion, a two-attempt cap and explicit retry after an interrupted process.
-- Explicit delivery preparation after plan approval; Owner-supplied or local-model static file generation, three real in-process validation gates, revision review, isolated preview and final Owner-approved ZIP export with checksums/receipts. No generated scripts or repository/shell execution.
-- File Store and SQLite with the same event contract. Switching backend stages a new generation, verifies all event counts/digests, then atomically switches one profile pointer.
-- Versioned text sources, accent-insensitive lexical search with exact source revision/hash/UTF-16 citations, and Owner-reviewed canonical memory. Imported text never authorizes actions.
-- Optional installed-model discovery, structured output validation, pinned model/input/output digests and provider-reported token usage. No tools are offered to the model.
-- Same-origin SSE, a consistent workspace snapshot, event-driven Office projection with client A* movement, reduced motion, visual pause and an accessible agent list.
-- AES-256-GCM encrypted backup, checksum validation and restore into an empty data directory.
+This implements the bounded local software contract, rather than every optional capability in specification 2.2. See the [current acceptance matrix and limits](docs/RELEASE_2.0.md), [API](docs/API.md), [security boundary](docs/SECURITY.md), and [original specification](AI_Company_OS_2.2_Work_Package/AI_Company_OS_Spec_v2.2.md).
 
 ## Run locally
 
-Install the .NET 10 SDK. Restore packages once, then start:
+Install .NET 10 SDK and Git. For actual code execution, install a local Docker engine using **Linux containers**, then explicitly install a trusted image suitable for the project:
 
-```sh
-dotnet restore src/AICompanyOS.Runtime --locked-mode
-dotnet run --project src/AICompanyOS.Runtime --no-restore
-```
-
-Open **http://127.0.0.1:4173**. Use this exact address; alternate hosts are rejected. No cloud account or frontend build is required. Package restore and development tooling may need Internet access; the running workspace has no cloud provider, telemetry or external asset calls. Local inference contacts only the explicitly configured loopback Ollama server when requested or when a previously queued job resumes.
-
-Data lives outside the repository under the platform local application data directory, in `AICompanyOS`. Set `AICOS_DATA_DIR` before starting to choose another local directory. The first launch creates Software Delivery Studio. Existing company event logs from the initial runtime are registered without rewriting their workflow history.
-
-The UI uses a per-process HttpOnly, SameSite Strict session cookie. API writes require `Origin: http://127.0.0.1:4173`; workflow commands also require an `Idempotency-Key`. Reload the UI after a runtime restart to establish its new session.
-
-## Use local AI
-
-Start Ollama with cloud features disabled and install a model appropriate to your hardware. Model downloads are a separate, explicit operation; this app never pulls weights or substitutes a cloud model.
-
-```sh
-OLLAMA_NO_CLOUD=1 ollama serve
-```
-
-For an existing Ollama service, configure that service and restart it as explained in the [Ollama FAQ](https://docs.ollama.com/faq#how-do-i-disable-ollamas-cloud-features). In **Yêu cầu mới**, select **AI local · Ollama**, click **Tải danh sách model đã cài**, choose a model/source excerpts and create the run. After BA completes, ACK the handoff to queue Leader. Owner approval remains an explicit separate action.
-
-The default provider is `http://127.0.0.1:11434/`. `AICOS_OLLAMA_URL` may select another dedicated numeric IPv4 loopback port. DNS names, credentials, remote URLs, redirects, proxies and the workspace port are rejected. GGUF locality, a pinned digest, completion capability and at least a 16k model context declaration are checked before generation. Unsupported models fail visibly; there is no automatic fallback.
-
-See [local inference, budgets and recovery](docs/LOCAL_INFERENCE.md) for the exact scope and verification limits.
-
-## Deliver a static site/document
-
-After approving a plan, click **Chuẩn bị sản phẩm bàn giao**. Assign Dev/Tester/SOC/QA/SubPM, enter literal file criteria and explicitly authorize manual files or local-model Dev generation. Plan approval alone does not create files.
-
-For a complete offline example, keep manual mode and the default `index.html | Tài liệu dự án` criterion. Click **Nhập file sản phẩm**, edit the JSON sample (or use [examples/static-delivery.json](examples/static-delivery.json)) and submit. Inspect the three check receipts and the isolated preview, then either request a new version or review/confirm acceptance and content rights. Only the accepted exact artifact can export **ZIP sản phẩm và receipts**.
-
-This edition supports up to eight safe text files, 48 KiB total, with `index.html` as passive XHTML. Static checks cover markup/JSON, passive-content policy and Owner literal criteria. They do not establish application correctness or legal clearance. See [the exact supported format, states and limits](docs/RELEASE_1.0.md).
-
-## Back up and restore
-
-In **Dữ liệu & sao lưu**, export an encrypted `.aicos` file and keep its passphrase separately. The UI can authenticate/decrypt a backup and verify its event digest without restoring it. The current backup limit is 8 MiB of plaintext event data before encryption; individual source imports are limited to 65,536 UTF-16 characters.
-
-Stop any runtime using the destination, choose a **new empty directory**, and restore from a local terminal:
-
-```sh
-AICOS_DATA_DIR="$HOME/.local/share/AICompanyOS-restored" \
-  dotnet run --project src/AICompanyOS.Runtime --no-restore -- \
-  --restore-backup /path/to/backup.aicos
-```
-
-Enter the passphrase at the prompt; it is not echoed in an interactive terminal. Start the app with the same `AICOS_DATA_DIR` to open the restored workspace. Restore refuses to overwrite existing data. The destination path is local; there is no remote backup service or account recovery for a lost passphrase.
-
-File/SQLite storage is plaintext at rest. Backup encryption does not encrypt the active workspace. See [the security boundary](docs/SECURITY.md).
-
-## Verify
-
-```sh
+```bash
+docker pull node:22-alpine
 dotnet restore tests/AICompanyOS.Runtime.Tests --locked-mode
+dotnet run --project src/AICompanyOS.Runtime
+```
+
+Open **http://127.0.0.1:4173**. The app never downloads images or models. Without Docker, project setup, planning, conversations and manual typed inputs work; execution approval is blocked and no build/test PASS is invented.
+
+For local AI, install the chosen GGUF completion model in a trusted Ollama server with cloud features disabled. The default endpoint is `http://127.0.0.1:11434/`; `AICOS_OLLAMA_URL` accepts numeric IPv4 loopback HTTP only. The app rechecks the installed model digest and at least 16K context capacity before each invocation. Configure each agent under **Company → Agents & Skills**. An empty model route means **Owner-supplied typed JSON**, not simulated inference.
+
+Optional environment variables:
+
+| Variable | Purpose |
+|---|---|
+| `AICOS_DATA_DIR` | Private local data directory; default `AICompanyOS` under the OS local application-data directory |
+| `AICOS_OLLAMA_URL` | Trusted local Ollama endpoint |
+| `AICOS_DOCKER_ENDPOINT` | Explicit local Unix `.sock` or Windows Docker named pipe; remote TCP is rejected |
+
+## Use Company Workbench
+
+1. Add a project using the absolute root of a committed local Git repository. Set readable/writable paths and typed build/test argument arrays. Intake reads the committed base, including no uncommitted edits.
+2. Install versioned skill instructions and configure department, model and budgets for each agent. Multiple agents may hold Dev; one agent may hold several roles.
+3. Create a software run, select source revisions and assignments. All inputs, accepted memory, agents, skills, model routes, workflow and repository base are pinned.
+4. Review the BA requirements and Leader task graph. **Yêu cầu sửa** sends explicit feedback into a new Leader input.
+5. Preview and approve the exact execution manifest, including image digest, source base, write scopes and commands. This grants isolated worktree/container operations for this run.
+6. Inspect task outputs, immutable handoff packets/receiver ACKs and actual receipts. Independent Dev tasks use separate worktrees. The source checkout and HEAD stay unchanged.
+7. A failing actionable test/code check can trigger up to two automatic correction rounds. Missing infrastructure or audit evidence escalates to Owner. Pause/resume/one-step/retry/cancel preserve durable checkpoints; stale workers cannot commit results.
+8. Review the passing candidate, diff/patch, test logs and provenance. Owner delivery revisions produce another candidate and fresh checks within the approved scopes and run budget.
+9. Confirm semantic acceptance and rights. Download the patch/source ZIP or separately preview an explicit scoped Git commit. Optional GitHub push opens a **draft PR**, requires company policy, exact target confirmation and an ephemeral token, and never merges/deploys.
+
+**Conversations & Meetings** supports public messages, local-model replies, meeting participants and saved minutes. Minutes and SubPM reports are source artifacts; proposed memory only becomes canonical after Owner review in Knowledge. Office movement and bubbles project saved execution/public-message events. Visual pause, board-only mode, keyboard selection, follow camera and reduced motion are independent from the worker.
+
+The command bar resolves `/status`, `/trace`, `/budget`, `/spec`, `/plan`, `/cook`, `/test`, `/check-policy`, `/report`, `/handoff @agent`, `/run software-delivery`, `/pause`, `/resume`, `/step`, `/retry` and `/cancel`. Role/skill commands inspect the current pinned node; they do not bypass prerequisites or dispatch extra tools. Slash commands never become shell text.
+
+## Small executable example
+
+```bash
+node examples/create-demo-repository.mjs /absolute/path/aicos-validation-demo
+```
+
+The script creates a new Git fixture with a deliberately failing validation rule, an actual Node test and documentation. It refuses an existing destination and prints a project configuration to copy into Company. Create a second Dev agent for parallel code/docs tasks, or let the Leader assign both tasks to the default Dev. Use an installed local model, or supply the typed spec/plan/patch shown in each node's input inspector. Production model quality depends on the chosen weights; test fixtures do not prove that quality.
+
+Dependencies must already be present in the selected image or safe snapshot: execution containers have no network. For external dependencies, import and Owner-review the inventory-matching audit/license evidence described in [RELEASE_2.0.md](docs/RELEASE_2.0.md#dependency-evidence). An unknown license or unavailable audit blocks the mandatory gates.
+
+## Verify and package
+
+```bash
 dotnet build tests/AICompanyOS.Runtime.Tests -c Release --no-restore
 dotnet run --project tests/AICompanyOS.Runtime.Tests -c Release --no-build
-```
-
-Optional UI quality checks use Node.js 20+; npm is needed only for testing:
-
-```sh
 npm ci
 npm test
-npx playwright install chromium
+npx playwright install --with-deps chromium
 npm run test:browser
+dotnet publish src/AICompanyOS.Runtime -c Release --no-restore --self-contained false -o artifacts/runtime
 ```
 
-The browser test starts and stops its own runtime with temporary data. Port 4173 must be free. It does not use your normal data directory. `npm run test:api` runs just the HTTP/restart checks and does not need a browser binary. Browser evidence is written to a temporary directory or `AICOS_QA_OUTPUT_DIR`; it is not release content.
+For required actual Docker integration on Linux, explicitly install `node:22-alpine` and set `AICOS_REQUIRE_SANDBOX=1` for both domain and browser checks. Missing Docker then fails the checks. Without that setting the local suite clearly reports its container phase as NOT RUN. Fixtures supply deterministic model JSON over real loopback HTTP; actual build/test phases execute the repository code in Docker.
 
-CI is configured for Linux/Windows domain tests, Linux Chromium checks and runtime-dependent packages for both OSes. CI results must be confirmed after the branch is pushed; configuration alone is not a passing remote run.
+[GitHub Actions](https://github.com/minhutc359-ship-it/agent-company/actions) runs Linux/Windows domain checks, runtime packaging, Chromium UI checks and required real-container Linux scenarios, including failing test → correction → passing gates → Owner → scoped commit. Browser screenshots/results are uploaded as CI evidence, not embedded release data.
 
-## Still required for the full product
+## Data and recovery
 
-The static delivery workflow is implemented with actual static validator receipts. Arbitrary repository/shell Dev execution, a process sandbox, application build/test and dependency-security gates, a general workflow compiler, cloud egress consent, conversation branching, semantic/vector retrieval and signed installers remain future work. Skills are versioned built-in contract metadata, not executable packages. Approving a scaffold plan never starts implementation or grants shell/network/Git permissions.
+Switch File Store/SQLite in **Dữ liệu & sao lưu** with checksum verification. Encrypted backups contain up to 64 MiB plaintext, with a 128 MiB envelope limit, using AES-256-GCM and PBKDF2. They preserve all company relationships and source/receipt/version history. Worktree directories and external repository history are not copied into the backup; keep the source repository separately.
 
-See [the prioritized backlog](docs/IMPLEMENTATION_REVIEW.md#remaining-product-backlog), [API details](docs/API.md), and the source requirements in `AI_Company_OS_2.2_Work_Package/AI_Company_OS_Spec_v2.2.md` and `AI_Company_OS_Work_Handoff_v2.2.md`.
+Restore into an empty data directory, supplying the passphrase interactively on standard input:
+
+```bash
+AICOS_DATA_DIR=/absolute/path/new-profile dotnet run --project src/AICompanyOS.Runtime -- --restore-backup /absolute/path/backup.aicos
+```
+
+Interrupted running jobs require explicit retry. An incomplete unaccepted Dev worktree can be reconciled from its blocked node inspector; only its registered managed worktree is removed. Accepted artifacts, source HEAD and unrelated worktrees are retained. Ambiguous remote Git failures require explicit release reconciliation/retry against the exact scoped ref.
+
+Historical documents: [1.0 static delivery](docs/RELEASE_1.0.md), [local inference](docs/LOCAL_INFERENCE.md), [baseline implementation review](docs/IMPLEMENTATION_REVIEW.md). Concept images/prototype are reference material, not runtime evidence.

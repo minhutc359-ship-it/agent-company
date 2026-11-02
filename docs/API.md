@@ -8,7 +8,7 @@ Errors use `{ "error": { "code": "...", "message": "...", "correlationId": "..."
 
 | Method | Route | Behavior |
 |---|---|---|
-| GET | `/health` | Actual active storage, local Ollama opt-in, loopback-only provider transport, no external provider calls |
+| GET | `/health` | Actual active storage, local Ollama opt-in, loopback-only provider transport, no cloud-model calls; separate explicit GitHub-release capability |
 | GET/POST | `/companies` | List/create isolated local company; create body `{companyId,name}`; ID is the natural idempotency key; case-only aliases are rejected for portable file paths |
 | GET | `/providers/local/models` | Explicitly query installed local GGUF models; cloud/remote entries are filtered |
 | GET | `/roles`, `/skills` | Built-in immutable versioned contracts/metadata |
@@ -26,7 +26,7 @@ Errors use `{ "error": { "code": "...", "message": "...", "correlationId": "..."
 | POST | `/workflow-runs/{runId}/approval` | `{approved,expectedSequence?}`; only awaiting_approval can transition |
 | POST | `/workflow-runs/{runId}/pause`, `/resume`, `/cancel` | `{expectedSequence}`; stale checkpoint → 409; cancelled runs cannot resume |
 | POST | `/workflow-runs/{runId}/retry` | `{expectedSequence}` and Idempotency-Key; blocked local AI only, total max 2 attempts per role |
-| GET | `/workflow-runs/{runId}/report` | Produced artifact IDs, model invocation/context/output/usage and true software execution evidence refs (empty until code executors exist) |
+| GET | `/workflow-runs/{runId}/report` | Produced artifact IDs, model invocation/context/output/usage and static-delivery receipt IDs where applicable; software execution uses the separate `/software-runs` contract |
 | GET | `/context/{snapshotId}` | Immutable spec/accepted-memory snapshot and packet; no permissions granted |
 | GET | `/events?afterSeq=N` | Full persisted events strictly after cursor |
 | GET | `/events/stream?afterSeq=N` | SSE `workspace` events with numeric `id`; `Last-Event-ID` takes precedence |
@@ -55,7 +55,7 @@ Citation: `{sourceId,revision,start,end,contentSha256}`. Start/end are zero-base
 |---|---|---|
 | GET | `/storage/verify` | Backend-independent company counts/digests; explicit legacy-event count |
 | POST | `/storage/migrate` | `{backend,expectedDigest}`; backend is file/sqlite, freeze-copy-verify-switch, stale preview → 409 |
-| POST | `/backups/export` | `{passphrase}` → encrypted binary `.aicos`; 12–256 characters, max 8 MiB before encryption |
+| POST | `/backups/export` | `{passphrase}` → encrypted binary `.aicos`; 12–256 characters, max 64 MiB plaintext / 128 MiB envelope |
 | POST | `/backups/validate` | `{archiveBase64,passphrase}` → counts/digest only; no current-data mutation |
 
 Storage migration and backup are profile-scoped Owner operations. No arbitrary filesystem paths or SQL connection strings are accepted through HTTP. Real restore is local CLI only and requires an empty destination; see README.
@@ -77,3 +77,56 @@ All routes below use `/companies/{companyId}/workflow-runs/{runId}/delivery`. Wr
 New states: `awaiting_delivery_input`, `awaiting_delivery_approval`, `delivery_blocked`, `delivery_revision_requested`, `delivered`; queued/running/blocked/paused/cancelled are reused for model/lifecycle handling. A stale checkpoint, wrong hash, invalid transition or missing rights confirmation returns 409. Invalid draft shape/path/size or known credential patterns return 400. Unsafe markup can be a valid draft shape but produces BLOCK receipts and a failed delivery gate rather than being executed.
 
 The static contract is deliberately narrower than arbitrary code generation; [RELEASE_1.0.md](RELEASE_1.0.md) defines the supported format and check boundaries.
+
+
+## Company and executable software delivery 2.0
+
+Global routes:
+
+| Method | Route | Behavior |
+|---|---|---|
+| GET | `/execution/capabilities?image=node:22-alpine` | Check local Linux Docker and an already installed image; no pull or code execution |
+| POST | `/workflows/validate` | Validate a SoftwareWorkflow, finite dependency order and expanded correction rounds; does not run it |
+| POST | `/commands/resolve` | `{text:"/trace"}` → explicit role/skill/workflow/runtime/query resolution; never shell execution |
+
+Company-scoped routes:
+
+| Method | Suffix | Contract |
+|---|---|---|
+| GET | `/workbench` | Profile, projects, configurations, instruction packages, workflow versions, software runs, interactions, meetings and consultation jobs |
+| PUT | `/profile` | `{expectedVersion,description,departments,allowGitHubRelease}`; policy defaults to remote release disabled |
+| POST | `/projects` | `{projectId,name,repositoryPath,readPaths,writePaths,dockerImage,build,test,expectedVersion?,remoteUrl?,baseBranch?}`; typed commands use `{name,executable,arguments,timeoutSeconds}` |
+| GET | `/projects/{projectId}/inventory` | Safe committed base/file hashes/omissions and dependency inventory digest |
+| PUT | `/agents/{agentId}/configuration` | `{expectedVersion,department,modelId,skillRefs,maxInputBytes,maxOutputTokens}`; skill refs use `id@version`, model null means Owner typed input |
+| POST | `/skills` | Immutable `{skillId,version,name,instructions,roles,requestedTools}` metadata; no script execution or permission grant |
+| POST | `/workflows` | Install a new validated immutable SoftwareWorkflow version |
+| POST | `/software-runs` | `{projectId,objective,assignments?,sourceIds?,workflowName?,workflowVersion?,releaseRequested?}` plus Idempotency-Key; pins safe base and all role contexts |
+| GET | `/software-runs/{runId}` | Typed spec/plan, nodes, jobs, patches, receipts, report, grant, handoff packets/ACKs, feedback and release |
+| POST | `/software-runs/{runId}/outputs/{nodeId}` | `{expectedSequence,output}` for a waiting-input BA, Leader or `dev-<taskId>`; strict schema, scopes and before hashes |
+| POST | `/software-runs/{runId}/execution-preview` | `{expectedSequence}`; real sandbox preflight then a 10-minute manifest binding pinned image/base/plan/commands |
+| POST | `/software-runs/{runId}/plan-approval` | `{expectedSequence,approved,manifestSha256}`; approval cannot bypass a missing/expired exact preview |
+| POST | `/software-runs/{runId}/revision` | `{expectedSequence,stage:"plan"|"delivery",feedback}` at the matching Owner gate; fresh planning or scoped implementation/checks |
+| POST | `/software-runs/{runId}/pause`, `/resume`, `/step`, `/retry`, `/cancel` | `{expectedSequence}`; one-step stops after one owned output; controls require Idempotency-Key |
+| POST | `/software-runs/{runId}/jobs/{jobId}/reconcile-worktree` | `{expectedSequence}` at a blocked checkpoint; discard only the registered unaccepted failed Dev worktree; explicit retry is separate |
+| GET | `/software-runs/{runId}/report` | Derived report plus real node/job/receipt/release state |
+| POST | `/software-runs/{runId}/final-review` | `{expectedSequence,candidateSha256,acceptanceConfirmed,rightsConfirmed}`; all mandatory receipts must pass |
+| GET | `/software-runs/{runId}/release-preview` | Passing candidate, scoped branch/remote/base, policy and target-manifest hash |
+| POST | `/software-runs/{runId}/release` | `{expectedSequence,candidateSha256,acceptanceConfirmed,rightsConfirmed,pushRequested?,gitHubToken?,targetManifestSha256}`; create scoped commit, optionally verify push/open draft PR; token is never persisted |
+| GET | `/software-runs/{runId}/export` | Exact accepted changed source files, patch manifests, report/receipts and SHA256SUMS ZIP |
+
+Software states include waiting_input, queued, running, awaiting_plan_approval, paused, blocked, awaiting_final_approval, awaiting_release, completed and cancelled. Node status/typed output/tool receipt/Owner approval are separate. Exact sequence/hash conflicts return 409; schema failures return 400/422. Source text, models and packages cannot supply receipts or Owner authority. Jobs use leases/heartbeat; interrupted external operations require reconciliation and explicit retry. `/health` advertises the executable workflow version and optional release network boundary.
+
+## Public collaboration and meetings 2.0
+
+| Method | Company-scoped suffix | Contract |
+|---|---|---|
+| POST | `/interactions` | `{runId,type,fromAgentId,toAgentIds,summary,artifactRefs,citations,replyTo?}`; run or lobby scope, valid company participants/artifacts; explicit Owner-authored origin |
+| POST | `/interactions/{interactionId}/respond` | `{agentId,roleId}`; selected recipient's installed local route, immutable context, durable bounded consultation job |
+| GET | `/consultations` | Job state/input/usage; model replies are labelled model_proposal, not accepted decisions |
+| POST | `/consultations/{jobId}/retry` | Explicit retry for failed/interrupted jobs, max two attempts |
+| POST | `/meetings` | `{runId,agenda,participants}`; 2–8 company agents and Idempotency-Key |
+| POST | `/meetings/{meetingId}/start` | `{expectedVersion,summary:"",actionItems:[],citations:[]}` |
+| POST | `/meetings/{meetingId}/complete` | `{expectedVersion,summary,actionItems,citations}`; Owner-supplied public minutes saved as immutable source |
+| POST | `/meetings/{meetingId}/summarize` | `{agentId,roleId}`; started participant's local model, only recorded matching public messages; minutes and reply commit atomically |
+
+Meeting/report source artifacts and proposed memory survive backup/migration. No consultation or meeting changes canonical memory automatically. Receiver ACKs validate context identity/hash/version mechanically and are visible in trace; they do not assert model understanding. The 2.0 supported node schemas, command semantics, size bounds and remaining capabilities are defined in [RELEASE_2.0.md](RELEASE_2.0.md).
