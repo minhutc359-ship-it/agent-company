@@ -9,7 +9,8 @@ public sealed class SoftwareCoordinator(FileEventStore store, RepositoryService 
         var workbench = await store.WorkbenchAsync(company, ct);
         var project = workbench.Projects.FirstOrDefault(p => p.ProjectId == request.ProjectId) ?? throw new KeyNotFoundException();
         var snapshot = await repositories.SnapshotAsync(project, ct);
-        var catalog = workbench.AgentConfigurations.Any(a => a.ModelId is not null) ? await models.ListAsync(ct) : [];
+        var agents = await store.ListAgentsAsync(company, ct);
+        var catalog = workbench.AgentConfigurations.Any(a => a.ModelId is not null && a.ProviderId is null && agents.Any(agent => agent.AgentId == a.AgentId && agent.RoleIds.Any(r => r is "ba" or "leader" or "dev"))) ? await models.ListAsync(ct) : [];
         return await store.CreateSoftwareRunAsync(company, request, project.Version, snapshot, catalog, key, ct);
     }
     public async Task<SoftwareRun> PreviewAsync(string company, string id, long expectedSequence, CancellationToken ct)
@@ -121,7 +122,9 @@ public sealed class SoftwareWorker(FileEventStore store, SoftwareCoordinator coo
                     if (patch.ReadRequests is { Length: > 0 })
                     {
                         if (patch.Files.Length != 0) throw new ArgumentException("File-read requests and write patches must be separate calls.");
-                        claim = await store.ExpandSoftwareContextAsync(claim, patch.ReadRequests, invocation.Token); continue;
+                        claim = await store.ExpandSoftwareContextAsync(claim, patch.ReadRequests, invocation.Token);
+                        if (claim.Status == "waiting_cloud_approval") throw new CloudApprovalPendingException();
+                        continue;
                     }
                 }
                 return await coordinator.ProcessTypedOutputAsync(run, claim, output.Output, invocation.Token);
@@ -142,6 +145,8 @@ public sealed class SoftwareWorker(FileEventStore store, SoftwareCoordinator coo
             }
             result = await execution.WaitAsync(invocation.Token);
         }
+        catch (CloudApprovalPendingException) { return; }
+        catch (CloudProviderException failure) { error = failure.Code; }
         catch (ModelProviderException failure) { error = failure.Code; }
         catch (ExecutionBlockedException blocked) { error = blocked.Message; }
         catch (OperationCanceledException) { error = stoppingToken.IsCancellationRequested ? "RUNTIME_STOPPED" : "CANCELLED_OR_TIMED_OUT"; }

@@ -22,6 +22,7 @@ import urllib.error
 import urllib.request
 import webbrowser
 import zipfile
+import update_engine
 
 BASE = Path(__file__).resolve().parent
 IS_WINDOWS = os.name == 'nt'
@@ -201,7 +202,8 @@ def check(prefix, saved):
                 result['model'] = info.get('details', {}).get('format') == 'gguf' and max(lengths, default=0) >= 16384 and 'completion' in info.get('capabilities', []) and not info.get('remote_host') and not info.get('remote_model')
         except (OSError, ValueError, SetupError):
             pass
-        result['ready'] = all(result.values())
+        required = [v for k, v in result.items() if not saved.get('cloud_only') or k not in ('ollama_installed', 'ollama_local', 'model')]
+        result['ready'] = all(required)
         return result
     finally:
         os.environ['PATH'] = old
@@ -260,7 +262,7 @@ def install_components(prefix, state, args):
     if not IS_WINDOWS and args.allow_docker_group:
         run(['sudo', 'usermod', '-aG', 'docker', os.environ.get('USER') or __import__('getpass').getuser()])
         print('Docker group changed. Sign out/in before execution; setup will not run the app as root.')
-    if not command('ollama'):
+    if not args.cloud_only and not command('ollama'):
         if IS_WINDOWS:
             run(['winget', 'install', '--id', 'Ollama.Ollama', '--exact', '--source', 'winget'])
         else:
@@ -277,7 +279,7 @@ def install_components(prefix, state, args):
             npm_cli = Path(npm_path).resolve() if npm_path and not IS_WINDOWS else npm_cli
         if not npm_cli.is_file():
             raise SetupError('npm CLI entrypoint was not found; install the official Node.js LTS distribution.')
-        run([node, npm_cli, 'install', '--global', '--prefix', str(prefix / 'cli'), '@openai/codex', '@google/gemini-cli', '@github/copilot'], env=env)
+        run([node, npm_cli, 'install', '--global', '--prefix', str(prefix / 'cli'), '@openai/codex', '@google/gemini-cli', '@github/copilot', '@anthropic-ai/claude-code'], env=env)
         print('CLI installation does not sign in. Run codex login, gemini, and copilot manually to select your own accounts.')
     return env
 
@@ -316,6 +318,8 @@ def main(argv=None):
     parser.add_argument('--yes', action='store_true'); parser.add_argument('--with-clis', action='store_true')
     parser.add_argument('--allow-docker-group', action='store_true'); parser.add_argument('--no-model', action='store_true')
     parser.add_argument('--launch', action='store_true'); parser.add_argument('--no-browser', action='store_true')
+    parser.add_argument('--source', action='store_true', help='Build the current source once, then run it with managed updates.')
+    parser.add_argument('--cloud-only', action='store_true', help='Use cloud/API routes; skip Ollama and model installation.')
     parser.add_argument('--agent-shell', action='store_true', help='Open a terminal with the private Node, CLIs and Ollama environment; no login is automated.')
     args = parser.parse_args(argv); prefix = args.prefix.expanduser().resolve()
     if not IS_WINDOWS and platform.system() != 'Linux':
@@ -333,6 +337,19 @@ def main(argv=None):
         env = environment(prefix, state)
         print('Your own account logins: codex login | gemini | copilot (then /login). Ollama endpoint: 127.0.0.1:11435. Exit to close this terminal.')
         return subprocess.call(['powershell', '-NoProfile', '-NoExit'] if IS_WINDOWS else ['/bin/bash', '--noprofile', '--norc'], env=env, cwd=BASE)
+    if args.source:
+        source = BASE.parent
+        if not (source / 'src/AICompanyOS.Runtime/AICompanyOS.Runtime.csproj').is_file():
+            raise SetupError('--source requires a source checkout.')
+        prefix.mkdir(parents=True, exist_ok=True)
+        env = environment(prefix, state)
+        if not check_sdk(env): env = install_components(prefix, state, args)
+        run(['dotnet','publish',source / 'src/AICompanyOS.Runtime','-c','Release','--self-contained','false','-o',BASE / 'app'], env=env)
+        run([sys.executable, BASE / 'build-bundle.py','--runtime',BASE / 'app','--output',prefix / 'source-build.zip'], env=env)
+        with zipfile.ZipFile(prefix / 'source-build.zip') as bundle:
+            (BASE / 'SHA256SUMS.json').write_bytes(bundle.read('SHA256SUMS.json'))
+        (prefix / 'updates/active.json').unlink(missing_ok=True)
+        run(['dotnet', str(BASE / 'app/AICompanyOS.Runtime.dll'), '--initialize-local'], env=env, cwd=BASE / 'app')
     if not MODEL_PATTERN.fullmatch(args.model) or 'cloud' in args.model.lower():
         raise SetupError('Use a local GGUF model name (maximum 120 characters); cloud aliases are not supported.')
     if not (BASE / 'app/AICompanyOS.Runtime.dll').is_file():
@@ -346,8 +363,9 @@ def main(argv=None):
     try:
         env = environment(prefix, state) if args.launch else install_components(prefix, state, args)
         os.environ['PATH'] = env['PATH']
-        start_ollama(prefix, state, env)
-        if not args.launch and not args.no_model:
+        if args.cloud_only: state['cloud_only'] = True
+        if not state.get('cloud_only'): start_ollama(prefix, state, env)
+        if not args.launch and not args.no_model and not state.get('cloud_only'):
             run(['ollama', 'pull', args.model], env=env); state['model'] = args.model
         if not args.launch:
             try:
@@ -355,13 +373,14 @@ def main(argv=None):
             except (SetupError, OSError):
                 try: run(docker_args() + ['pull', 'node:22-alpine'], env=env)
                 except (SetupError, OSError): print('WAIT Docker/image. Start Docker Desktop or sign out/in after a Docker group change, then run setup again.')
-            initialize = ['dotnet', str(BASE / 'app/AICompanyOS.Runtime.dll'), '--initialize-local']
-            if state.get('model'):
+            app = update_engine.current_app(BASE, prefix)
+            initialize = ['dotnet', str(app / 'AICompanyOS.Runtime.dll'), '--initialize-local']
+            if state.get('model') and not state.get('cloud_only'):
                 initialize += ['--model', state['model']]
-            run(initialize, env=env, cwd=BASE / 'app')
+            run(initialize, env=env, cwd=app)
         state_path.write_text(json.dumps(state, indent=2))
         result = check(prefix, state); print_checks(result)
-        if not result['ready']:
+        if not result['ready'] and not args.launch:
             print('Setup is incomplete; WAIT items are not treated as PASS. Rerun after completing them. --no-model creates the demo for manual typed output, not automatic AI.')
             return 10
         print('READY: http://127.0.0.1:4173 — open Demo · Agent Company, review and start the demo.')
@@ -369,7 +388,7 @@ def main(argv=None):
             if not args.no_browser:
                 import threading
                 threading.Timer(2, lambda: webbrowser.open('http://127.0.0.1:4173')).start()
-            run(['dotnet', str(BASE / 'app/AICompanyOS.Runtime.dll')], env=env, cwd=BASE / 'app')
+            return update_engine.supervise(BASE, prefix, env)
         return 0
     finally:
         state_path.write_text(json.dumps(state, indent=2))

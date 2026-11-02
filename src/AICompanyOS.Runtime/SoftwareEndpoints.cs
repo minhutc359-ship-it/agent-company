@@ -9,6 +9,44 @@ public static class SoftwareEndpoints
 {
     public static void Map(RouteGroupBuilder companies, RouteGroupBuilder api)
     {
+        api.MapGet("/updates/status", (UpdateService updates) => updates.Status());
+        api.MapPost("/agent-models", async (AgentModelRequest request, CancellationToken ct) =>
+        {
+            var policy = CloudProviderPolicy.Resolve(request.ProviderType);
+            if (string.IsNullOrWhiteSpace(request.Secret) || request.Secret.Length > 8192 || request.Secret.Any(char.IsControl)) throw new ArgumentException("Nhập API key hợp lệ.");
+            return await new CloudModelCatalog().CheckAsync(new("preview", 1, request.ProviderType, "not-selected", policy.Host, policy.Path, policy.Version, "memory", true, policy.Caveat, DateTimeOffset.UtcNow), request.Secret, ct);
+        });
+        api.MapPost("/updates/check", (UpdateService updates, CancellationToken ct) => updates.RunAsync("check", ct));
+        api.MapPost("/updates/download", (UpdateService updates, CancellationToken ct) => updates.RunAsync("stage", ct));
+        api.MapPost("/updates/apply", async (UpdateApplyRequest request, UpdateService updates, FileEventStore store, IHostApplicationLifetime lifetime, CancellationToken ct) => { await updates.ApplyAsync(request, store, lifetime, ct); return Results.Ok(new { restarting = true }); });
+        companies.MapGet("/agent-connections", async (string companyId, FileEventStore store, RuntimeCredentialVault vault, CancellationToken ct) =>
+        {
+            var wb = await store.WorkbenchAsync(companyId, ct);
+            return wb.AgentConfigurations.Select(c => new { c.AgentId, c.ModelId, c.ProviderId, c.Engine, keyAvailable = c.ProviderId is null || wb.CloudProviders.Any(p => p.ProviderId == c.ProviderId && vault.Status(companyId, p.ProviderId, p.ProviderType, p.CredentialRef).Available) });
+        });
+        companies.MapPost("/agents/{agentId}/connect", async (string companyId, string agentId, AgentConnectRequest request, FileEventStore store, RuntimeCredentialVault vault, CancellationToken ct) =>
+        {
+            if (!request.AllowCloud) throw new ArgumentException("Bạn cần đồng ý cho gửi ngữ cảnh công việc tới dịch vụ AI đã chọn.");
+            if (!CloudProviderPolicy.ValidModel(request.ModelId) || request.Engine is not ("api" or "claude-code") || string.IsNullOrWhiteSpace(request.Secret) || request.Secret.Length > 8192 || request.Secret.Any(char.IsControl)) throw new ArgumentException("Chọn model, engine và API key hợp lệ.");
+            var policy = CloudProviderPolicy.Resolve(request.ProviderType);
+            var wb = await store.WorkbenchAsync(companyId, ct); var c = wb.AgentConfigurations.FirstOrDefault(c => c.AgentId == agentId);
+            if ((c?.Version ?? 0) != request.ExpectedVersion) throw new WorkspaceConflictException("Cấu hình agent đã thay đổi, mở lại form kết nối.");
+            var providerId = "agent-route-" + RuntimeJson.TextHash(agentId)[7..23]; var prior = wb.CloudProviders.FirstOrDefault(p => p.ProviderId == providerId);
+            if (request.Engine == "claude-code") _ = ClaudeCodeClient.Route(new(providerId, 1, request.ProviderType, request.ModelId, policy.Host, policy.Path, policy.Version, "memory", policy.Caveat));
+            var p = prior is { Enabled: true, CredentialRef: "memory" } && prior.ProviderType == request.ProviderType && prior.ModelId == request.ModelId ? prior : await store.ConfigureCloudProviderAsync(companyId, providerId, new(prior?.Version ?? 0, request.ProviderType, request.ModelId), ct);
+            if (wb.Profile.PrivacyMode != "controlled_cloud") await store.ConfigureCompanyAsync(companyId, new(wb.Profile.Version, wb.Profile.Description, wb.Profile.Departments, wb.Profile.AllowGitHubRelease, "controlled_cloud", wb.Profile.CloudPolicyVersion, wb.Profile.MaxCloudOutputTokens), ct);
+            var configured = c is not null && c.ProviderId == p.ProviderId && c.ModelId == request.ModelId && c.Engine == request.Engine ? c : await store.ConfigureAgentAsync(companyId, agentId, new(c?.Version ?? 0, c?.Department ?? wb.Profile.Departments[0], request.ModelId, c?.SkillRefs ?? [], c?.MaxInputBytes ?? 10000, Math.Min(c?.MaxOutputTokens ?? 2048, wb.Profile.MaxCloudOutputTokens), p.ProviderId, request.Engine), ct);
+            vault.Set(companyId, p.ProviderId, p.ProviderType, request.Secret);
+            return new { configured.AgentId, configured.ModelId, configured.ProviderId, configured.Engine, keyAvailable = true, detail = "Đã kết nối. Run mới dùng cấu hình này; từng nội dung gửi cloud cần bạn duyệt. Key chỉ giữ trong phiên hiện tại." };
+        });
+        companies.MapGet("/software-runs/{runId}/jobs/{jobId}/cloud-preview", (string companyId, string runId, string jobId, FileEventStore store, CancellationToken ct) => store.PreviewSoftwareCloudAsync(companyId, runId, jobId, ct));
+        companies.MapPost("/software-runs/{runId}/jobs/{jobId}/cloud-approve", async (string companyId, string runId, string jobId, CloudJobDecision request, FileEventStore store, RuntimeCredentialVault vault, CancellationToken ct) =>
+        {
+            var run = await store.GetSoftwareRunAsync(companyId, runId, ct) ?? throw new KeyNotFoundException(); var job = run.Jobs.Single(j => j.JobId == jobId);
+            var p = run.Seed.Bindings.Single(b => b.RoleId == job.RoleId && b.Agent.AgentId == job.AgentId).Cloud?.Provider ?? throw new ArgumentException("Node không dùng cloud.");
+            if (!vault.Status(companyId, p.ProviderId, p.ProviderType, p.CredentialRef).Available) throw new WorkspaceConflictException("API key đã hết phiên. Bấm Kết nối AI để nhập lại key của nhân viên.");
+            return await store.ApproveSoftwareCloudAsync(companyId, runId, jobId, request, ct);
+        });
         api.MapGet("/execution/capabilities", async (string? image, DockerSandbox sandbox, CancellationToken ct) => await sandbox.ProbeAsync(image ?? "node:22-alpine", ct));
         api.MapPost("/commands/resolve", (CompanyCommandRequest request) => CompanyCommandParser.Resolve(request.Text));
         api.MapPost("/workflows/validate", (SoftwareWorkflow workflow) => SoftwareContracts.Compile(workflow));

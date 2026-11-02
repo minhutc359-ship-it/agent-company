@@ -7,8 +7,8 @@ public sealed record CompanyProfile(int Version, string Description, string[] De
     string PrivacyMode = "strict_local", int CloudPolicyVersion = 1, int MaxCloudOutputTokens = 2048);
 public sealed record CompanyProfileRequest(int ExpectedVersion, string Description, string[] Departments, bool AllowGitHubRelease = false,
     string PrivacyMode = "strict_local", int CloudPolicyVersion = 1, int MaxCloudOutputTokens = 2048);
-public sealed record AgentConfiguration(string AgentId, int Version, string Department, string? ModelId, string[] SkillRefs, int MaxInputBytes = 8000, int MaxOutputTokens = 4096);
-public sealed record AgentConfigurationRequest(int ExpectedVersion, string Department, string? ModelId, string[] SkillRefs, int MaxInputBytes = 8000, int MaxOutputTokens = 4096);
+public sealed record AgentConfiguration(string AgentId, int Version, string Department, string? ModelId, string[] SkillRefs, int MaxInputBytes = 8000, int MaxOutputTokens = 4096, string? ProviderId = null, string Engine = "api");
+public sealed record AgentConfigurationRequest(int ExpectedVersion, string Department, string? ModelId, string[] SkillRefs, int MaxInputBytes = 8000, int MaxOutputTokens = 4096, string? ProviderId = null, string Engine = "api");
 public sealed record SkillPackage(string SkillId, string Version, string Name, string Instructions, string[] Roles, string[] RequestedTools);
 public sealed record CommandSpec(string Name, string Executable, string[] Arguments, int TimeoutSeconds = 120);
 public sealed record RepositoryProject(string ProjectId, int Version, string Name, string RepositoryPath, string[] ReadPaths, string[] WritePaths,
@@ -32,7 +32,7 @@ public sealed record RuntimeFinding(string Id, string Severity, string Message, 
 public sealed record ExecutionReceipt(string ReceiptId, string JobId, string RoleId, string AgentId, string Tool, string ToolVersion, string InputSha256,
     string Status, int? ExitCode, DateTimeOffset StartedAt, DateTimeOffset FinishedAt, string Stdout, string Stderr, string LogSha256,
     string? ContainerId, string? ImageId, RuntimeFinding[] Findings, bool SelfReviewed = false, CommandSpec? Command = null, string? ArchiveSha256 = null, int Attempt = 0);
-public sealed record RoleBinding(string RoleId, Agent Agent, AgentConfiguration Configuration, SkillPackage[] Skills, LocalModel? Model);
+public sealed record RoleBinding(string RoleId, Agent Agent, AgentConfiguration Configuration, SkillPackage[] Skills, LocalModel? Model, AgentCloudRoute? Cloud = null);
 public sealed record ExecutionGrant(string ManifestSha256, string ImageId, string SnapshotSha256, string PlanSha256, DateTimeOffset PreviewedAt, DateTimeOffset ExpiresAt);
 public sealed record SoftwareApproval(long ExpectedSequence, bool Approved, string ManifestSha256);
 public sealed record SoftwareCreateRequest(string ProjectId, string Objective, Dictionary<string, string>? Assignments = null, string[]? SourceIds = null, string WorkflowName = "software-delivery", string WorkflowVersion = "2.0.0", bool ReleaseRequested = false);
@@ -44,7 +44,7 @@ public sealed record SoftwareReleaseRequest(long ExpectedSequence, string Candid
 public sealed record ReleaseOutcome(string CommitSha, string Branch, bool Pushed, string? PullRequestUrl, string ManifestSha256);
 public sealed record SoftwareJob(string JobId, string RunId, string CompanyId, string NodeId, string RoleId, string AgentId, int Round, string? TaskId,
     string Input, string InputSha256, string Status = "queued", int Attempts = 0, string? LeaseToken = null, string? WorkerId = null,
-    DateTimeOffset? LeaseUntil = null, string? Error = null, int? InputTokens = null, int? OutputTokens = null, string? OutputSha256 = null, int ModelCalls = 0, int UnreportedCalls = 0);
+    DateTimeOffset? LeaseUntil = null, string? Error = null, int? InputTokens = null, int? OutputTokens = null, string? OutputSha256 = null, int ModelCalls = 0, int UnreportedCalls = 0, string? CloudApprovalSha256 = null, int? CloudPolicyVersion = null);
 public sealed record SoftwareNodeState(string Id, string Status, string? Error = null);
 public sealed record SoftwareSeed(string RunId, string CompanyId, string Objective, RepositoryProject Project, RepositorySnapshot Repository,
     SoftwareWorkflow Workflow, RoleBinding[] Bindings, MemoryRecord[] Memory, SourceExcerpt[] Sources, bool ReleaseRequested, DateTimeOffset CreatedAt);

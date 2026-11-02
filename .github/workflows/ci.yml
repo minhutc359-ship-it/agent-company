@@ -23,7 +23,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python tests/setup_installer_test.py
+      - run: python -m unittest discover -s tests -p "*_test.py"
       - name: Verify Windows launcher without installing dependencies
         if: runner.os == 'Windows'
         run: cmd /c "setup\Setup-Windows.cmd --plan < nul"
@@ -40,11 +40,13 @@ jobs:
         run: dotnet "${{ runner.temp }}/aicos-runtime/AICompanyOS.Runtime.dll" --initialize-local
         env:
           AICOS_DATA_DIR: ${{ runner.temp }}/aicos-package-demo
-      - run: python setup/build-bundle.py --runtime "${{ runner.temp }}/aicos-runtime" --output "${{ runner.temp }}/AICompanyOS-Full-Setup-2.4.zip"
+      - run: python setup/build-bundle.py --runtime "${{ runner.temp }}/aicos-runtime" --output "${{ runner.temp }}/AICompanyOS-Full-Setup-2.5.zip"
+      - name: Verify actual managed update and automatic rollback
+        run: python tests/managed_update_integration.py --runtime "${{ runner.temp }}/aicos-runtime"
       - uses: actions/upload-artifact@v4
         with:
-          name: ai-company-os-full-setup-2.4-${{ runner.os }}
-          path: ${{ runner.temp }}/AICompanyOS-Full-Setup-2.4.zip
+          name: ai-company-os-full-setup-2.5-${{ runner.os }}
+          path: ${{ runner.temp }}/AICompanyOS-Full-Setup-2.5.zip
           if-no-files-found: error
   browser:
     runs-on: ubuntu-latest
@@ -78,3 +80,22 @@ jobs:
             ${{ runner.temp }}/aicos-qa/*.png
             ${{ runner.temp }}/aicos-qa/*.json
           if-no-files-found: ignore
+
+  publish:
+    needs: [runtime, browser]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: ai-company-os-full-setup-2.5-Linux
+          path: release-package
+      - name: Publish verified stable update for the in-app updater
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python setup/publish-release.py --bundle release-package/AICompanyOS-Full-Setup-2.5.zip

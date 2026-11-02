@@ -26,6 +26,7 @@ async function request(path, options = {}) {
   const response = await fetch(path, { credentials: 'same-origin', ...options,
     headers: { ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...options.headers } });
   if (!response.ok) {
+    if (response.status === 429) throw new Error('Ứng dụng đang xử lý nhiều yêu cầu. Chờ một lát rồi thử lại thao tác này.');
     const body = await response.json().catch(() => ({}));
     throw new Error((body.error?.code ? `${body.error.code}: ` : '') + (body.error?.message || (typeof body.error === 'string' ? body.error : `Thao tác thất bại (${response.status}).`)));
   }

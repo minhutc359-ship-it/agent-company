@@ -2,6 +2,15 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using AICompanyOS.Runtime;
 
+if (args.Contains("--bare"))
+{
+    var input = await Console.In.ReadToEndAsync();
+    if (!args.Contains("--restricted") || !args.Contains("--no-session-persistence") || Array.IndexOf(args, "--tools") < 0 || args[Array.IndexOf(args,"--tools") + 1] != "" || Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY") != "fixture-cli-key" || Environment.GetEnvironmentVariable("ANTHROPIC_BASE_URL") is not null || input.Contains("fixture-cli-key")) { Environment.ExitCode = 1; return; }
+    Console.WriteLine(JsonSerializer.Serialize(new { is_error = false, structured_output = new RequirementSpec("CLI fixture spec", ["Keep the approved scope"], [new("AC-001", "Reject empty input", "test")], [], []), usage = new { input_tokens = 30, output_tokens = 20 } }, RuntimeJson.Options));
+    return;
+}
+if (args.Contains("--guided-only")) { await GuidedUpgradeTests.RunAsync(); return; }
+
 var dataRoot = Path.Combine(Path.GetTempPath(), $"aicos-tests-{Guid.NewGuid():N}");
 Directory.CreateDirectory(dataRoot);
 try
@@ -100,6 +109,7 @@ await DeliveryTests.RunAsync();
 await SoftwareTests.RunAsync();
 await StarterTests.RunAsync();
 await SetupTests.RunAsync();
+await GuidedUpgradeTests.RunAsync();
 
 static void Assert(bool condition, string message)
 {

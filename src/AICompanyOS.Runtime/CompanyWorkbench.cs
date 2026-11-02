@@ -86,7 +86,7 @@ public sealed partial class FileEventStore
     }
     public async Task<AgentConfiguration> ConfigureAgentAsync(string company, string agentId, AgentConfigurationRequest request, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(request.Department) || request.Department.Length > 80 || request.ModelId is not null && !OllamaProvider.ValidModelName(request.ModelId) ||
+        if (string.IsNullOrWhiteSpace(request.Department) || request.Department.Length > 80 || request.ModelId is not null && !(request.ProviderId is null ? OllamaProvider.ValidModelName(request.ModelId) : CloudProviderPolicy.ValidModel(request.ModelId)) ||
             request.SkillRefs is not { Length: <= 12 } || request.SkillRefs.Any(s => s is null || s.Length > 100) || request.MaxInputBytes is < 4000 or > 10000 || request.MaxOutputTokens is < 256 or > 4096)
             throw new ArgumentException("Invalid department, installed-model ID, skill references or bounded input/output budget.");
         await _gate.WaitAsync(ct);
@@ -98,7 +98,8 @@ public sealed partial class FileEventStore
             if ((prior?.Version ?? 0) != request.ExpectedVersion) throw new WorkspaceConflictException("Agent configuration changed.");
             var skills = SkillsFrom(events);
             if (request.SkillRefs.Any(r => !skills.Any(s => s.SkillId + "@" + s.Version == r && s.Roles.Intersect(agent.RoleIds).Any()))) throw new ArgumentException("Every skill reference must resolve to an installed version compatible with the agent's roles.");
-            var configured = new AgentConfiguration(agentId, request.ExpectedVersion + 1, request.Department, request.ModelId, request.SkillRefs.Distinct().ToArray(), request.MaxInputBytes, request.MaxOutputTokens);
+            if (request.Engine is not ("api" or "claude-code") || request.ProviderId is not null && !CloudProvidersFrom(events).Any(p => p.ProviderId == request.ProviderId && p.Enabled && p.ModelId == request.ModelId && (request.Engine != "claude-code" || p.ProviderType == "anthropic"))) throw new ArgumentException("Chọn provider/model đã cấu hình và engine tương thích.");
+            var configured = new AgentConfiguration(agentId, request.ExpectedVersion + 1, request.Department, request.ModelId, request.SkillRefs.Distinct().ToArray(), request.MaxInputBytes, request.MaxOutputTokens, request.ProviderId, request.Engine);
             await AppendUnsafeAsync(company, agentId, [DomainEvent.Create("agent.configuration.changed", configured)], events, ct); return configured;
         }
         finally { _gate.Release(); }

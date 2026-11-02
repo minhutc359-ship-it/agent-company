@@ -1,18 +1,26 @@
 # AI Company OS
 
-**2.4 Local Setup & Team Demo** adds an AI setup guide, resumable Windows/Ubuntu setup bundle, real Git demo project, bounded agent-to-agent local discussions and explicit external CLI handoff to the Living Studio workspace: multi-company UI, versioned software delivery, isolated Git worktrees, Docker evidence, Owner gates, Living Office, branch-aware conversations, hybrid local knowledge and an optional exact-payload Controlled Cloud gateway.
+**2.5 Guided Workspace & Managed Updates** adds an AI setup guide, resumable Windows/Ubuntu setup bundle, real Git demo project, bounded agent-to-agent local discussions and explicit external CLI handoff to the Living Studio workspace: multi-company UI, versioned software delivery, isolated Git worktrees, Docker evidence, Owner gates, Living Office, branch-aware conversations, hybrid local knowledge and an optional exact-payload Controlled Cloud gateway.
 
 The supported local software flow is **BA → Leader → Owner scope approval → parallel Dev tasks → Build → Tester/SOC/QA → corrective rounds → SubPM → Owner acceptance → source export or explicit Git release**. Model output never substitutes for a command receipt. The original static-document workflow remains available under **Luồng tĩnh**.
 
-See the [2.4 setup/demo release](docs/RELEASE_2.4.md), [2.3 Living Studio release](docs/RELEASE_2.3.md), [2.2 execution/privacy acceptance matrix](docs/RELEASE_2.2.md), [API](docs/API.md), [security boundary](docs/SECURITY.md), and [original specification](AI_Company_OS_2.2_Work_Package/AI_Company_OS_Spec_v2.2.md). Unsupported or externally unverified items are listed explicitly; the runtime does not simulate them.
+See the [2.5 guided/update release](docs/RELEASE_2.5.md), [2.4 setup/demo release](docs/RELEASE_2.4.md), [2.3 Living Studio release](docs/RELEASE_2.3.md), [2.2 execution/privacy acceptance matrix](docs/RELEASE_2.2.md), [API](docs/API.md), [security boundary](docs/SECURITY.md), and [original specification](AI_Company_OS_2.2_Work_Package/AI_Company_OS_Spec_v2.2.md). Unsupported or externally unverified items are listed explicitly; the runtime does not simulate them.
 
 **Tiếng Việt:** [Cài toàn bộ thành phần, đăng nhập AI/CLI và chạy demo](setup/README.vi.md) · [Hướng dẫn chi tiết và phạm vi còn thiếu so với spec](docs/HUONG_DAN_SU_DUNG.vi.md).
 
 ## Full setup bundle
 
-Download `AICompanyOS-Full-Setup-2.4.zip` from the latest green branch [Actions run](https://github.com/minhutc359-ship-it/agent-company/actions), or build it using [these commands](setup/README.vi.md#7-build-lại-bộ-cài-từ-source). Extract all files, then run `Setup-Windows.cmd` on Windows or `bash setup-ubuntu.sh` on Ubuntu. The installer handles missing .NET/Git/Node/Docker/Ollama components, a dedicated local model server, embedded SQLite and the demo. It reports WAIT until the real prerequisites are present; Docker first launch/reboot, account login and hardware capacity remain host-specific. Vendor dependencies/model/image require network during setup. The runtime itself does not download them.
+Download `AICompanyOS-Full-Setup-2.5.zip` from the latest green branch [Actions run](https://github.com/minhutc359-ship-it/agent-company/actions), or build it using [these commands](setup/README.vi.md#7-build-lại-bộ-cài-từ-source). Extract all files, then run `Setup-Windows.cmd` on Windows or `bash setup-ubuntu.sh` on Ubuntu. The installer handles missing .NET/Git/Node/Docker/Ollama components, a dedicated local model server, embedded SQLite and the demo. It reports WAIT until the real prerequisites are present; Docker first launch/reboot, account login and hardware capacity remain host-specific. Vendor dependencies/model/image require network during setup. The runtime itself does not download them.
 
-Open **Thiết lập AI & Demo** in Company to review diagnostics and local routes, create/open the separate demo, or see cloud/API and external CLI instructions. Ollama runs software jobs and automatic local discussions. Cloud API routes currently provide Owner-approved conversation proposals. Codex/ChatGPT, Gemini CLI and Copilot CLI use reviewed handoff export/import; their separate login sessions are not automatic worker adapters.
+Open **Thiết lập AI & Demo** in Company to review diagnostics and local routes, create/open the separate demo, or see cloud/API and external CLI instructions. Ollama runs local jobs/discussions. The one-screen **Kết nối AI** form binds Claude/OpenAI/Gemini API keys or an installed Claude Code CLI to each employee. BA/Leader/Dev cloud steps require exact-payload approval and retain typed output/worktree/Docker gates. Codex/ChatGPT, Gemini CLI and Copilot CLI retain reviewed handoff export/import. A next-step card and optional 15-second idle coach show the current Owner action. Managed installations can check/download/upgrade in the app, with closed-store snapshots and startup-failure rollback. Stable update releases are published only after a master push passes all required CI jobs. See [2.5](docs/RELEASE_2.5.md).
+
+To publish and run the current source with update supervision (close the old runtime first):
+
+```bash
+python setup/setup-aicos.py --source --launch --cloud-only
+```
+
+.NET SDK 10 is required; the launcher can install missing components. Omit `--cloud-only` for a configured local Ollama environment. Direct `dotnet run` also works, but in-app installation requires the managed launcher.
 
 ## Run locally
 

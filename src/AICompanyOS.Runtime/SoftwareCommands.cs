@@ -59,7 +59,7 @@ public sealed partial class FileEventStore
             if (action == "cancel") additions.Add(DomainEvent.Create("software.cancelled", new { }));
             foreach (var job in run.Jobs.Where(j => j.Round == run.Round))
             {
-                if (action is "pause" or "cancel" && job.Status is "running" or "queued" or "waiting_input")
+                if (action is "pause" or "cancel" && job.Status is "running" or "queued" or "waiting_input" or "waiting_cloud_approval")
                 {
                     if (action == "pause" && job.Status != "running") continue;
                     var status = action == "cancel" ? "cancelled" : "interrupted";
@@ -68,8 +68,8 @@ public sealed partial class FileEventStore
                 }
                 if ((action is "resume" or "step" && job.Status == "interrupted" && job.Error == "OWNER_PAUSE" || action == "retry" && job.Status is "failed" or "interrupted") && job.Attempts < run.Seed.Workflow.MaxAttempts)
                 {
-                    var retryStatus = (job.TaskId is not null || job.NodeId is "ba" or "leader") && Binding(run, job.RoleId, job.AgentId).Model is null ? "waiting_input" : "queued";
-                    additions.Add(DomainEvent.Create("software.job.changed", job with { Status = retryStatus, LeaseToken = null, LeaseUntil = null, Error = null }));
+                    var retryStatus = Binding(run, job.RoleId, job.AgentId).Cloud is not null && (job.TaskId is not null || job.NodeId is "ba" or "leader") ? "waiting_cloud_approval" : (job.TaskId is not null || job.NodeId is "ba" or "leader") && Binding(run, job.RoleId, job.AgentId).Model is null ? "waiting_input" : "queued";
+                    additions.Add(DomainEvent.Create("software.job.changed", job with { Status = retryStatus, LeaseToken = null, LeaseUntil = null, Error = null, CloudApprovalSha256 = null }));
                     additions.Add(NodeEvent(job.NodeId, retryStatus)); additions.Add(NodeEvent("subpm", "pending"));
                 }
             }

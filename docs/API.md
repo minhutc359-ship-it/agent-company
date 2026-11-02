@@ -169,4 +169,22 @@ All routes retain the existing loopback/session/Origin requirements. Paths begin
 
 CLI initialization: `dotnet AICompanyOS.Runtime.dll --initialize-local [--model <installed-local-model>]` migrates to embedded SQLite with digest verification, creates/opens the managed demo and exits without starting an HTTP server or model inference. This is the command used by the setup bundle; it never supplies provider credentials.
 
+## Guided connections, software cloud consent and updates 2.5
+
+| Method | Path | Contract |
+| --- | --- | --- |
+| POST | `/api/v1/agent-models` | `{providerType,secret}`; explicit credential-only fixed-host model list; secret is not persisted |
+| GET | `/companies/{company}/agent-connections` | Configuration/engine/model/provider references and key availability, never keys |
+| POST | `/companies/{company}/agents/{agent}/connect` | `{expectedVersion,providerType,modelId,secret,allowCloud:true,engine:"api"|"claude-code"}`; explicitly enables Controlled Cloud, configures the employee and places key in RAM. Same-route key refills preserve provider/config versions |
+| GET | `/companies/{company}/software-runs/{run}/jobs/{job}/cloud-preview` | Current `waiting_cloud_approval` job's pinned provider/engine and actual credential-free payload/hash/checkpoint |
+| POST | `/companies/{company}/software-runs/{run}/jobs/{job}/cloud-approve` | `{expectedSequence,payloadSha256}`; exact payload/current provider/current policy/available credential required before queueing |
+| GET | `/api/v1/updates/status` | Runtime build, managed-launcher availability and persisted update state; no network call |
+| POST | `/api/v1/updates/check` | Fixed public repository stable release metadata; no install; bounded HTTPS and monotonic build numbers |
+| POST | `/api/v1/updates/download` | Rechecks the inspected release, downloads/verifies all bytes, then stages a version; app/data stay unchanged |
+| POST | `/api/v1/updates/apply` | `{tag,sha256}` must match the staged package; fences writes, rejects active jobs, requests graceful managed restart and returns before shutdown |
+
+Company paths follow `/api/v1`; all existing cookie/Origin/rate-limit boundaries remain. Software role bindings optionally carry a frozen `cloud` snapshot; agent configurations add optional `providerId` and `engine` with backward-compatible defaults. New cloud inputs are not claimable until `waiting_cloud_approval` becomes `queued` through exact consent. New progressive-read context clears consent and releases its lease. Reconnect-after-restart does not silently replace a pinned route. Model proposals continue through the existing typed/patch validation and runtime checks.
+
+Managed update protocol: installer sets `AICOS_INSTALL_ROOT`, `AICOS_INSTALL_PREFIX`, `AICOS_PYTHON`; the data root must equal `<prefix>/data`. Updater code comes from the installed bootstrap, not downloaded installer scripts. The runtime exits with code 42 only after an accepted apply; the parent snapshots the closed data store, atomically changes the active-version pointer and validates the new build through session + health. An unfinished activation journal or failed health rolls back both pointer and data snapshot. Stable GitHub assets are published only by the verified-master CI publish job. Unsupported runtime-major/protocol changes require a new bootstrap package.
+
 The current Work Mode/preset/visual-editor contract is in [RELEASE_2.3.md](RELEASE_2.3.md); execution/privacy boundaries remain documented in [RELEASE_2.2.md](RELEASE_2.2.md). [RELEASE_2.0.md](RELEASE_2.0.md) remains historical.

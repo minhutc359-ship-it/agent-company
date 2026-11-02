@@ -30,7 +30,7 @@ public sealed class LocalSetupService(string dataRoot)
             new("Git", git, git ? "Đã có trên PATH." : "Cài Git rồi mở lại runtime."),
             new("Ollama / model local", installed.Length > 0, installed.Length > 0 ? $"{installed.Length} model GGUF đã cài; capability được kiểm tra trước inference." : modelError),
             new("Docker Linux / image demo", docker.Available, docker.Available ? "Docker local và node:22-alpine sẵn sàng." : docker.Reason)
-        ], installed, new[] { "codex", "gemini", "copilot" }.Where(name => FindCommand(name) is not null).ToArray(), storage.Backend, installed.Length > 0, git && docker.Available);
+        ], installed, new[] { "codex", "gemini", "copilot", "claude" }.Where(name => FindCommand(name) is not null).ToArray(), storage.Backend, installed.Length > 0, git && docker.Available);
     }
     public async Task<DemoSetupResult> InstallDemoAsync(FileEventStore store, RepositoryService repositories, string? modelId, LocalModel[] models, CancellationToken ct)
     {
