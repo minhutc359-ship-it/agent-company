@@ -114,7 +114,8 @@ public interface ICloudProviderClient
 public sealed class CloudProviderClient : ICloudProviderClient, IDisposable
 {
     private readonly HttpClient _http;
-    public CloudProviderClient(HttpMessageHandler? testHandler = null) => _http = new(testHandler ?? new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false }) { Timeout = Timeout.InfiniteTimeSpan };
+    private readonly int _maxPayloadBytes;
+    public CloudProviderClient(HttpMessageHandler? testHandler = null, int maxPayloadBytes = 10000) =>(_http, _maxPayloadBytes) = (new HttpClient(testHandler ?? new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false }) { Timeout = Timeout.InfiniteTimeSpan }, Math.Clamp(maxPayloadBytes, 10000, 64000));
     public void Dispose() => _http.Dispose();
     public async Task<CloudProviderResult> ExecuteAsync(CloudProviderSnapshot provider, string payload, string credential, CancellationToken ct)
     {
@@ -124,7 +125,7 @@ public sealed class CloudProviderClient : ICloudProviderClient, IDisposable
         using var input = JsonDocument.Parse(payload); var body = input.RootElement;
         var tokenField = provider.ProviderType == "anthropic" ? "max_tokens" : provider.ProviderType == "openai" ? "max_output_tokens" : "generation_config";
         var tokenLimit = provider.ProviderType == "gemini" ? body.GetProperty(tokenField).GetProperty("max_output_tokens").GetInt32() : body.GetProperty(tokenField).GetInt32();
-        if (Encoding.UTF8.GetByteCount(payload) > 10000 || body.GetProperty("model").GetString() != provider.ModelId || tokenLimit is < 256 or > 4096 ||
+        if (Encoding.UTF8.GetByteCount(payload) > _maxPayloadBytes || body.GetProperty("model").GetString() != provider.ModelId || tokenLimit is < 256 or > 4096 ||
             body.TryGetProperty("tools", out _) || body.TryGetProperty("previous_response_id", out _) || body.TryGetProperty("previous_interaction_id", out _) ||
             provider.ProviderType != "anthropic" && (!body.TryGetProperty("store", out var store) || store.ValueKind != JsonValueKind.False))
             throw new CloudProviderException("CLOUD_PAYLOAD_CONTRACT_MISMATCH");

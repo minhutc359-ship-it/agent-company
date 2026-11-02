@@ -16,3 +16,6 @@ test-results/
 __pycache__/
 *.pyc
 setup/installed/
+
+setup/app/
+setup/SHA256SUMS.json

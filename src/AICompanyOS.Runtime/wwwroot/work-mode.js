@@ -1,7 +1,7 @@
 import { escapeHtml as esc, agentName } from './presentation.js';
 import { portrait } from './office-assets.js';
 const $ = id => document.getElementById(id);
-const status = { pending: 'Chờ', queued: 'Đang chờ', running: 'Đang làm', produced: 'Đã tạo', passed: 'Đã kiểm tra', approved: 'Đã duyệt', failed: 'Chưa đạt', blocked: 'Bị chặn', completed: 'Hoàn tất', waiting_input: 'Chờ bạn nhập', waiting_approval: 'Chờ bạn duyệt', not_run: 'Chưa chạy', superseded: 'Đã thay thế', interrupted: 'Gián đoạn', cancelled: 'Đã hủy', awaiting_plan_approval: 'Chờ duyệt phạm vi', awaiting_final_approval: 'Chờ nghiệm thu', awaiting_release: 'Chờ bàn giao', paused: 'Tạm dừng', skipped_satisfied: 'Không yêu cầu' };
+const status = { waiting_cloud_approval: "Chờ bạn cho phép AI", pending: 'Chờ', queued: 'Đang chờ', running: 'Đang làm', produced: 'Đã tạo', passed: 'Đã kiểm tra', approved: 'Đã duyệt', failed: 'Chưa đạt', blocked: 'Bị chặn', completed: 'Hoàn tất', waiting_input: 'Chờ bạn nhập', waiting_approval: 'Chờ bạn duyệt', not_run: 'Chưa chạy', superseded: 'Đã thay thế', interrupted: 'Gián đoạn', cancelled: 'Đã hủy', awaiting_plan_approval: 'Chờ duyệt phạm vi', awaiting_final_approval: 'Chờ nghiệm thu', awaiting_release: 'Chờ bàn giao', paused: 'Tạm dừng', skipped_satisfied: 'Không yêu cầu' };
 const names = { intake: 'Nhận việc', ba: 'Phân tích yêu cầu', leader: 'Lập kế hoạch', 'approval-plan': 'Bạn duyệt phạm vi', dev: 'Triển khai', build: 'Build', tester: 'Kiểm thử', soc: 'Bảo mật', qa: 'Chất lượng', gate: 'Kết quả kiểm tra', subpm: 'Báo cáo', 'final-approval': 'Bạn nghiệm thu', release: 'Bàn giao' };
 const complete = new Set(['produced', 'passed', 'approved', 'completed', 'skipped_satisfied']);
 export function renderWorkMode(workbench) {

@@ -58,6 +58,7 @@ public sealed partial class FileEventStore
             if (nodes["approval-plan"].Status == "waiting_approval") return "awaiting_plan_approval";
             if (latestJobs.Any(j => j.Status == "running")) return "running";
             if (latestJobs.Any(j => j.Status == "queued")) return "queued";
+            if (latestJobs.Any(j => j.Status == "waiting_cloud_approval")) return "waiting_cloud_approval";
             if (latestJobs.Any(j => j.Status == "waiting_input")) return "waiting_input";
             return nodes.Values.Any(n => n.Status is "failed" or "blocked") || error is not null ? "blocked" : "queued";
         }
@@ -67,7 +68,7 @@ public sealed partial class FileEventStore
         var state = State();
         var status = state == "completed" ? "completed" : nodes["gate"].Status == "passed" ? "ready_for_owner" : nodes["gate"].Status == "failed" || state == "blocked" ? "blocked" : "in_progress";
         var report = new SoftwareReport(status, new[] { spec is null ? null : "spec@" + RuntimeJson.Hash(spec), plan is null ? null : "plan@" + RuntimeJson.Hash(plan), candidate?.Sha256 }.Where(s => s is not null).Cast<string>().ToArray(),
-            currentReceipts.Select(r => r.ReceiptId).ToArray(), findings.ToArray(), nodes.Values.Where(n => n.Status == "waiting_approval").Select(n => n.Id).ToArray(),
+            currentReceipts.Select(r => r.ReceiptId).ToArray(), findings.ToArray(), nodes.Values.Where(n => n.Status is "waiting_approval" or "waiting_cloud_approval").Select(n => n.Id).ToArray(),
             jobs.Values.Any(j => j.ModelCalls > 0 && (j.UnreportedCalls > 0 || j.InputTokens is null)) ? null : jobs.Values.Sum(j => j.InputTokens ?? 0),
             jobs.Values.Any(j => j.ModelCalls > 0 && (j.UnreportedCalls > 0 || j.OutputTokens is null)) ? null : jobs.Values.Sum(j => j.OutputTokens ?? 0),
             jobs.Values.Sum(j => j.ModelCalls), ["Model statements are proposals; only recorded command/check receipts can satisfy tool gates.", "Dependency advisories and semantic/legal acceptance require the configured evidence and Owner review; unknown usage/cost is not zero."]);
@@ -103,8 +104,9 @@ public sealed partial class FileEventStore
                 {
                     var configuration = configurations.FirstOrDefault(c => c.AgentId == agent.AgentId) ?? new(agent.AgentId, 0, "Unassigned", null, [], 8000, 4096);
                     var packages = configuration.SkillRefs.Select(r => skills.Single(s => s.SkillId + "@" + s.Version == r)).Where(s => s.Roles.Contains(role)).ToArray();
-                    var model = configuration.ModelId is null ? null : models.FirstOrDefault(m => m.Name == configuration.ModelId) ?? throw new ArgumentException("An assigned model is not installed locally.");
-                    bindings.Add(new(role, agent, configuration, packages, model));
+                    var cloud = configuration.ProviderId is null ? null : ResolveAgentCloud(configuration, events);
+                    var model = cloud is not null ? new LocalModel(configuration.ModelId!, RuntimeJson.Hash(cloud), "cloud route", DateTimeOffset.UtcNow) : configuration.ModelId is null || role is not ("ba" or "leader" or "dev") ? null : models.FirstOrDefault(m => m.Name == configuration.ModelId) ?? throw new ArgumentException("An assigned model is not installed locally.");
+                    bindings.Add(new(role, agent, configuration, packages, model, cloud));
                 }
             }
             var memory = CanonicalFrom(events); var sources = SourcesFrom(events);
@@ -136,7 +138,7 @@ public sealed partial class FileEventStore
         }
         var modelNode = node is "ba" or "leader" || taskId is not null;
         var job = new SoftwareJob("job-" + Guid.NewGuid().ToString("N"), run.Seed.RunId, run.Seed.CompanyId, node, role, agent.Agent.AgentId, run.Round, taskId,
-            input, RuntimeJson.TextHash(input), modelNode && agent.Model is null ? "waiting_input" : "queued");
+            input, RuntimeJson.TextHash(input), modelNode && agent.Cloud is not null ? "waiting_cloud_approval" : modelNode && agent.Model is null ? "waiting_input" : "queued");
         await AppendUnsafeAsync(run.Seed.CompanyId, run.Seed.RunId, [DomainEvent.Create("software.handoff.created", BuildSoftwareHandoff(run, job)), DomainEvent.Create("software.job.changed", job), NodeEvent(node, job.Status)], events, ct);
     }
     private async Task AdvanceSoftwareUnsafeAsync(string company, string id, List<DomainEvent> events, CancellationToken ct)

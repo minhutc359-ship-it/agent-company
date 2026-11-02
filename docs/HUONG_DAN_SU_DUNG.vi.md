@@ -183,3 +183,8 @@ Trong Company, mở **Thiết lập AI & Demo**: chọn model local và đúng n
 **Hội ý tự động** cho 2–4 nhân viên local lần lượt phản hồi và đọc trả lời trước, có giới hạn lượt/budget, retry có kiểm soát và nút dừng. Không tự cấp tools hoặc tự phê duyệt kết quả. Bàn giao công việc BA → Leader → Dev vẫn theo workflow đã chụp cấu hình.
 
 Văn phòng 2.4 có cụm bàn, ghế, thảm khu vực, lối đi, decor ở viền phòng và sprite giữ nhận dạng khi agent đổi việc. Thứ tự lớp bám vị trí di chuyển; ảnh atlas được crop từng ô. Đây vẫn là hoạt ảnh 2D từ atlas, không phải model 3D hay bộ frame đa hướng. Bản đồ mới cần nghiệm thu trên máy đích cùng các tiêu chí ở phần 6.
+
+
+## 8. Cập nhật 2.5 cho PM/QC
+
+Dùng [hướng dẫn PM/QC](../setup/README.vi.md#8-bắt-đầu-nhanh-cho-pm--qc-ở-bản-25): **Kết nối AI** gán API key trực tiếp cho từng nhân viên; Claude/OpenAI/Gemini API và Claude Code đã có route BA/Leader/Dev với preview/duyệt từng payload. Thanh **Bước tiếp theo** mở đúng hành động Owner; tooltip sau 15 giây không thao tác có thể tắt. Mở bằng launcher để dùng **Kiểm tra cập nhật → Tải → Nâng cấp**, có snapshot và rollback khi khởi động lỗi. Bản stable chỉ xuất bản sau khi merge master và toàn bộ CI đạt. Các nhận xét giới hạn provider/installer ở phần 2.3–2.4 là lịch sử; phạm vi mới và phần chưa nghiệm thu được ghi tại [RELEASE_2.5.md](RELEASE_2.5.md).

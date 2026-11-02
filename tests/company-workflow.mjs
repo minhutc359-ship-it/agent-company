@@ -56,7 +56,7 @@ async function waitFor(predicate, label, timeout = 90000) {
   while (Date.now() < end) { value = await workbench(); if (predicate(value)) return value; await new Promise(r => setTimeout(r, 500)); }
   throw new Error(`Timeout ${label}: ${JSON.stringify(value?.runs.map(r => ({ state: r.state, nodes: r.nodes, jobs: r.jobs.map(({ input, ...j }) => j), report: r.report }))).slice(-8000)}`);
 }
-async function submit(id) { await page.locator(`#${id} button[type=submit]`).click(); await page.waitForFunction(() => !document.getElementById('detailDialog').open); }
+async function submit(id) { await page.locator(`#${id} button[type=submit]`).click(); await page.waitForFunction(form => !document.getElementById('detailDialog').open || document.querySelector('#'+form+' .form-feedback')?.textContent, id); if (await page.locator('#detailDialog').evaluate(d=>d.open)) throw new Error('Form '+id+': '+await page.locator('#'+id+' .form-feedback').innerText()); }
 async function configureAgent(id) {
   await page.click(`[data-studio-agent="${id}"]`); await page.fill('#agentModelId', model); await page.fill('#agentOutputBudget', '2048');
   await page.fill('#agentInputBudget', '10000'); await submit('companyAgentForm');
@@ -306,6 +306,44 @@ try {
   check(officeBenchmark.agents === 25 && officeBenchmark.uniqueCells === 25 && officeBenchmark.moved > 1 && officeBenchmark.paused, 'Actual 25-agent renderer moves concurrently without shared cells and respects visual pause.');
   check(officeBenchmark.frameP95Ms < 250, 'The headless 25-agent fixture must not sustain frame stalls above 250ms.');
   check(officeBenchmark.stableSprite && officeBenchmark.chairs === 8, 'Character identity remains stable across job role changes, with a real chair at each work station.');
+  await page.selectOption('#companySelect', 'aicos-demo');
+  await page.click('#companyConnectAI'); await page.selectOption('#connectAgent','ba-agent');
+  await page.locator('#connectSecret').waitFor(); await page.selectOption('#connectProvider','anthropic');
+  await page.fill('#connectSecret','browser-fixture-api-key'); await page.fill('#connectModel','fixture-model'); await page.check('#connectConsent');
+  await page.locator('#agentConnectForm button[type=submit]').click(); await page.locator('#connectAnother').waitFor();
+  const connected = await api('/api/v1/companies/aicos-demo/agent-connections');
+  check(connected.some(c=>c.agentId==='ba-agent'&&c.providerId&&c.engine==='api'&&c.keyAvailable), 'Nontechnical connection wizard persists the selected agent route and exposes only key availability.');
+  const cloudWorkbench = await api('/api/v1/companies/aicos-demo/workbench');
+  check(!JSON.stringify(cloudWorkbench).includes('browser-fixture-api-key')&&cloudWorkbench.profile.privacyMode==='controlled_cloud','Explicit connection consent enables cloud policy without putting credentials in workspace state.');
+  await page.click('#connectCreate'); await page.fill('#softwareObjective','Guided cloud workflow awaits exact Owner approval.'); await submit('createSoftwareRun');
+  await page.waitForFunction(()=>document.getElementById('ownerGuideAction').textContent.includes('cho phép AI'));
+  await page.click('#ownerGuideAction'); await page.locator('#approveSoftwareCloud').waitFor();
+  check((await page.locator('#dialogBody').innerText()).includes('fixture-model')&&!(await page.locator('#dialogBody').innerText()).includes('browser-fixture-api-key'),'Owner next-step button opens the correct pinned cloud preview with service/model and no key.');
+  await page.click('#closeDialog');
+  const beforeRefill = await api('/api/v1/companies/aicos-demo/workbench');
+  const routeBeforeRefill = beforeRefill.cloudProviders.find(p=>p.providerId===beforeRefill.agentConfigurations.find(c=>c.agentId==='ba-agent').providerId);
+  await page.click('#companyConnectAI'); await page.selectOption('#connectAgent','ba-agent'); await page.locator('#connectSecret').waitFor();
+  await page.fill('#connectSecret','browser-reentered-key'); await page.check('#connectConsent'); await page.locator('#agentConnectForm button[type=submit]').click(); await page.locator('#connectAnother').waitFor();
+  const refilled = await api('/api/v1/companies/aicos-demo/workbench');
+  check(refilled.cloudProviders.find(p=>p.providerId===routeBeforeRefill.providerId).version===routeBeforeRefill.version&&refilled.runs[0].state==='waiting_cloud_approval','Re-entering the same route key preserves frozen provider versions so pending runs can continue after a restart.');
+  await page.click('#closeDialog');
+  await page.clock.install(); await page.mouse.move(30,30); await page.clock.runFor(14000);
+  check(await page.locator('#idleCoach').isHidden(),'Idle help does not interrupt before fifteen seconds.');
+  await page.clock.runFor(1100); await page.locator('#idleCoach:not([hidden])').waitFor();
+  check((await page.locator('#idleCoach').innerText()).includes('AI cần bạn duyệt')&&!await page.locator('#idleCoach').evaluate(e=>e.contains(document.activeElement)),'At fifteen seconds the coach identifies the real next step without stealing focus.');
+  check((await api('/api/v1/companies/aicos-demo/workbench')).runs[0].state==='waiting_cloud_approval','Idle help never approves or starts a cloud call on the Owner’s behalf.');
+  await page.screenshot({path:join(output,'owner-idle-guidance.png'),fullPage:true});
+  await page.click('#coachDismiss'); check(await page.locator('#idleCoach').isHidden(),'The anchored tip can be dismissed with its own button.');
+  await page.uncheck('#idleHintsEnabled'); await page.clock.resume();
+  await page.click('#companyUpdates');
+  check(await page.locator('#updateCheck').isDisabled()&&(await page.locator('#dialogBody').innerText()).includes('Start-Windows.cmd'),'Source-mode update UI explains the managed-launcher requirement instead of presenting a broken install action.');
+  await page.click('#closeDialog');
+  await page.route('**/api/v1/updates/**',route=>{const path=new URL(route.request().url()).pathname;return route.fulfill({json:path.endsWith('/status')?{managed:true,build:{version:'2.5.0'},state:{phase:'idle'},detail:'GUI state fixture; actual supervisor is tested separately.'}:path.endsWith('/check')?{available:true,phase:'checked',detail:'Có bản mới sẵn sàng tải.'}:{available:true,phase:'ready',detail:'Đã tải và xác minh.'}});});
+  await page.click('#companyUpdates'); await page.click('#updateCheck'); await page.locator('#updateDownload:not([disabled])').waitFor();
+  await page.click('#updateDownload'); await page.locator('#updateApply:not([disabled])').waitFor();
+  check((await page.locator('#updateStatus').innerText()).includes('xác minh'),'Update dialog advances from check to download to enabled upgrade, with visible status feedback.');
+  await page.screenshot({path:join(output,'application-update.png'),fullPage:true}); await page.click('#closeDialog'); await page.unroute('**/api/v1/updates/**');
+  await page.selectOption('#companySelect','software-studio');
   await page.setViewportSize({ width: 390, height: 844 }); await page.click('[data-company-tab=office]');
   check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Company workspace must fit mobile width.');
   await page.screenshot({ path: join(output, 'company-mobile.png'), fullPage: true });

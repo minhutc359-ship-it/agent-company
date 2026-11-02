@@ -48,6 +48,7 @@ public sealed partial class FileEventStore
                     : consultation?.Status == "queued" ? "queued"
                     : cloud?.Status == "queued" ? "queued"
                     : work?.State == "paused" ? "paused"
+                    : job?.Status == "waiting_cloud_approval" ? "waiting_approval"
                     : job?.Status == "waiting_input" ? "waiting_input"
                     : job?.Status == "queued" ? "queued"
                     : work?.State == "blocked" && job?.Status is "failed" or "interrupted" ? "blocked"

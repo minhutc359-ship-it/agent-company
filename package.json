@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/office-navigation.test.mjs",
+    "test": "node --test tests/*.test.mjs",
     "test:browser": "node tests/browser-smoke.mjs && node tests/company-workflow.mjs",
     "test:api": "node tests/browser-smoke.mjs --api-only",
     "test:company": "node tests/company-workflow.mjs"

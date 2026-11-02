@@ -1,4 +1,4 @@
-# AI Company OS 2.4 · Bộ cài local và demo
+# AI Company OS 2.5 · Bộ cài local và demo
 
 Giải nén **toàn bộ** ZIP vào thư mục riêng, ví dụ `C:\AICompanyOS` hoặc `~/AICompanyOS`. Giữ `app/`, các launcher và `SHA256SUMS.json` cạnh nhau. Không chạy trực tiếp từ bên trong ZIP. Bộ cài dùng Python standard library và tải thành phần còn thiếu từ nguồn chính thức; cần Internet khi cài và tải model/image. Ứng dụng chạy trên `http://127.0.0.1:4173`.
 
@@ -90,7 +90,7 @@ Trong tab **Hội thoại**, bấm **Hội ý tự động**, chọn 2–4 nhân
 | Codex / ChatGPT | Terminal: `codex login`, kiểm tra bằng `codex login status` | Xuất gói handoff rồi nhập JSON đã review; không phải worker CLI tự động |
 | Gemini CLI | Terminal: `gemini`, chọn phương thức đăng nhập theo hướng dẫn | Handoff và nhập JSON |
 | GitHub Copilot CLI | Terminal: `copilot`, sau đó `/login`; cần tài khoản/quyền Copilot phù hợp | Handoff và nhập JSON |
-| OpenAI / Gemini / Anthropic API | Company policy → Controlled Cloud; Studio → provider/model → nạp API key vào RAM → kiểm tra model | Tham vấn hội thoại, từng payload được Owner preview/duyệt; chưa dùng cho BA/Leader/Dev tự động |
+| OpenAI / Gemini / Anthropic API | Company policy → Controlled Cloud; Studio → provider/model → nạp API key vào RAM → kiểm tra model | BA/Leader/Dev và tham vấn, từng payload được Owner preview/duyệt; Claude Code có engine riêng trong Kết nối AI |
 
 Đăng nhập ChatGPT/Codex, gói thuê bao và API credential là các lựa chọn xác thực khác nhau; không tự suy ra quyền API chỉ từ việc đã đăng nhập website. Quyền model, quota, billing và chính sách tổ chức do tài khoản/provider quyết định. Nút kiểm tra API chỉ gọi danh sách model, không gửi nội dung workspace và không chứng minh khả năng sinh đúng schema. Credential RAM mất khi runtime dừng; dùng credential riêng phù hợp thay vì chép credential của CLI vào app.
 
@@ -114,9 +114,37 @@ Trong tab **Hội thoại**, bấm **Hội ý tự động**, chọn 2–4 nhân
 ```bash
 dotnet restore src/AICompanyOS.Runtime --locked-mode
 dotnet publish src/AICompanyOS.Runtime -c Release --no-restore --self-contained false -o artifacts/runtime
-python3 setup/build-bundle.py --runtime artifacts/runtime --output artifacts/AICompanyOS-Full-Setup-2.4.zip
+python3 setup/build-bundle.py --runtime artifacts/runtime --output artifacts/AICompanyOS-Full-Setup-2.5.zip
 ```
 
 ZIP có runtime, UI/assets, SQLite native dependencies và launcher. SDK/model/image được tải đúng nguồn trong quá trình setup; đây không phải bộ cài offline. Checksum kèm gói phát hiện file thiếu/hỏng sau giải nén, không phải chữ ký số của publisher.
 
 Nguồn chính thức để đối chiếu: [Codex auth](https://learn.chatgpt.com/docs/auth), [Gemini CLI auth](https://geminicli.com/docs/get-started/authentication/), [Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli), [.NET installer](https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-install-script), [Ollama Linux](https://docs.ollama.com/linux), [Ollama Windows](https://docs.ollama.com/windows), [model](https://ollama.com/library/qwen2.5-coder:7b), [Docker Ubuntu](https://docs.docker.com/engine/install/ubuntu/).
+
+
+## 8. Bắt đầu nhanh cho PM / QC ở bản 2.5
+
+1. Cài bộ 2.5 một lần để có launcher nâng cấp mới. ZIP 2.4 cũ không thể tự bổ sung launcher này. Nếu chỉ dùng cloud, chạy `Setup-Windows.cmd --cloud-only` hoặc `bash setup-ubuntu.sh --cloud-only`; không phải tải Ollama/model local.
+2. Mở **Kết nối AI**, chọn nhân viên → dịch vụ → nhập API key → **Kiểm tra key & lấy danh sách model** → chọn model → đồng ý dùng cloud → lưu. Không phải sửa JSON, tên biến môi trường hay file cấu hình. Key chỉ giữ trong RAM; kiểm tra danh sách model không thay cho nghiệm thu một lần sinh kết quả thật.
+3. **Claude API** không cần CLI. **Claude Code** cần CLI mới trên PATH; bộ cài `--with-clis` bổ sung cả Claude Code. Adapter dùng Anthropic API key với bare/restricted mode, không dùng login thuê bao; không cho model chạy shell, đọc/sửa file hay gọi MCP. Kết quả đề xuất được runtime kiểm tra và thực thi trong worktree/Docker đã duyệt. Codex/Gemini/Copilot CLI vẫn dùng handoff; OpenAI/Gemini API là route riêng có thể chạy bước BA/Leader/Dev.
+4. Tạo/mở demo hoặc chọn project đã được người phụ trách kỹ thuật cấu hình. Bấm **Giao việc mới**, mô tả mục tiêu và điều kiện đạt bằng câu thông thường. Kết nối các vai trò cần suy luận (BA, Leader và các Dev được phân công). Tester/SOC/QA dùng kiểm tra runtime, không nhất thiết cần model riêng.
+5. Đọc thanh **Bước tiếp theo dành cho bạn**. Nút tại đây mở đúng phần đang chờ: cho phép gửi nội dung AI, duyệt phạm vi thực hiện, sửa lỗi, nghiệm thu hoặc tải kết quả. Các nội dung AI gửi ra ngoài cần duyệt chính xác trước mỗi lần gửi; không tự cho phép chỉ vì đã nhập key.
+6. Khi không thao tác khoảng 15 giây, tooltip chỉ vị trí cần bấm và giải thích lý do. Không tự điều hướng hay bấm duyệt. Tooltip tạm ngưng khi đang nhập liệu, mở hộp thoại hoặc đổi tab trình duyệt; có **Đã hiểu**, **Tắt gợi ý** và checkbox bật lại trên thanh hướng dẫn.
+7. Sau restart/nâng cấp, nhập lại API key ở **Kết nối AI** cho đúng nhân viên. Nếu dịch vụ/model/engine không đổi, phiên bản route được giữ để công việc đã chụp cấu hình tiếp tục được; không cần tạo lại run chỉ vì key RAM hết phiên.
+
+## 9. Kiểm tra cập nhật → tải bản mới → nâng cấp
+
+- Những lần mở sau dùng `Start-Windows.cmd` hoặc `python3 setup-aicos.py --launch`. Trong app bấm **Cập nhật ứng dụng → Kiểm tra cập nhật → Tải bản mới → Nâng cấp & khởi động lại**.
+- Chỉ bản đã merge vào `master` và qua toàn bộ CI mới được phát hành vào GitHub Releases. Push nhánh/PR chỉ có artifact kiểm thử. Khi chưa có release ổn định, app thông báo rõ; không tải nhầm code chưa được duyệt.
+- App kiểm tra SHA256 từ GitHub và toàn bộ file trong manifest. Tải lỗi/hash sai thì giữ bản đang chạy. Sau khi có gói đã xác minh, dừng hội ý, tạm dừng workflow và chờ lượt AI/container đang chạy kết thúc rồi nâng cấp. App chặn thao tác mới trong lúc chuyển phiên bản.
+- Launcher sao lưu thư mục `installed/data`, chuyển app sang thư mục phiên bản riêng và kiểm tra health đúng build. Nếu khởi động thất bại, tự khôi phục cả app cũ và snapshot DB/dữ liệu trước nâng cấp. Giữ snapshot trong `installed/updates/backups`; dữ liệu lần chạy lỗi được giữ riêng để kiểm tra. Model trong `installed/models` không tải lại; repo ngoài data không bị di chuyển.
+- API key RAM không được ghi vào snapshot; nhập lại sau restart. Cập nhật không tự cài driver, thay BIOS/WSL2 hoặc vượt qua yêu cầu tài khoản. Nâng cấp sang runtime/protocol lớn không tương thích cần bootstrap mới.
+- Bộ này tải dependencies qua Internet và chưa có chữ ký số của publisher; checksum xác minh bytes từ kênh GitHub cố định.
+
+Nếu bạn dùng source, sau khi cập nhật repository, đóng app cũ rồi chạy một lệnh từ thư mục repository:
+
+```bash
+python3 setup/setup-aicos.py --source --launch --cloud-only
+```
+
+Windows có thể dùng `python` thay `python3`. Launcher publish code hiện tại, khởi tạo/mở SQLite và demo, rồi chạy đúng code vừa build; bỏ trỏ tới bản tải cũ. Dùng cùng `--prefix` để giữ data/model/cấu hình. `--cloud-only` chọn kết nối API; nếu đang dùng Ollama local, dùng cấu hình/server tương ứng. Chạy trực tiếp bằng `dotnet run` vẫn được, nhưng nút cài cập nhật cần launcher quản lý tiến trình. SDK .NET 10/Git là điều kiện build source; bước cài vendor có thể cần quyền quản trị.

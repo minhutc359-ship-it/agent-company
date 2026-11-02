@@ -45,12 +45,12 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = 429;
-    options.AddFixedWindowLimiter("local", limit =>
+    // Realtime snapshots must not consume the Owner's mutation allowance.
+    options.AddPolicy("local", context =>
     {
-        limit.PermitLimit = 240;
-        limit.Window = TimeSpan.FromMinutes(1);
-        limit.QueueLimit = 0;
-        limit.AutoReplenishment = true;
+        var reading = HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method);
+        return RateLimitPartition.GetFixedWindowLimiter(reading ? "read" : "write", _ => new FixedWindowRateLimiterOptions
+        { PermitLimit = reading ? 1200 : 240, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true });
     });
     options.AddConcurrencyLimiter("backup", limit => { limit.PermitLimit = 1; limit.QueueLimit = 0; });
 });
@@ -60,7 +60,11 @@ builder.Services.AddHostedService<InferenceWorker>();
 builder.Services.AddSingleton(new RepositoryService(dataRoot));
 builder.Services.AddSingleton(new LocalSetupService(dataRoot));
 builder.Services.AddSingleton(new DockerSandbox(dataRoot));
-builder.Services.AddSingleton<ISoftwareModelClient>(_ => new OllamaSoftwareClient(Environment.GetEnvironmentVariable("AICOS_OLLAMA_URL") ?? "http://127.0.0.1:11434/"));
+builder.Services.AddSingleton(_ => new OllamaSoftwareClient(Environment.GetEnvironmentVariable("AICOS_OLLAMA_URL") ?? "http://127.0.0.1:11434/"));
+builder.Services.AddSingleton(new ClaudeCodeClient(dataRoot));
+builder.Services.AddSingleton(_ => new CloudProviderClient(maxPayloadBytes: 64000));
+builder.Services.AddSingleton<ISoftwareModelClient>(sp => new RoutedSoftwareClient(sp.GetRequiredService<OllamaSoftwareClient>(), sp.GetRequiredService<FileEventStore>(), sp.GetRequiredService<RuntimeCredentialVault>(), sp.GetRequiredService<CloudProviderClient>(), sp.GetRequiredService<ClaudeCodeClient>()));
+builder.Services.AddSingleton(new UpdateService(dataRoot));
 builder.Services.AddSingleton<SoftwareCoordinator>();
 builder.Services.AddSingleton(provider => new SoftwareReleaseService(provider.GetRequiredService<FileEventStore>(), provider.GetRequiredService<RepositoryService>(), dataRoot));
 builder.Services.AddHostedService<SoftwareWorker>();
@@ -86,6 +90,8 @@ app.Use(async (context, next) =>
         return;
     }
     var isApi = context.Request.Path.StartsWithSegments("/api");
+    if (isApi && !HttpMethods.IsGet(context.Request.Method) && !HttpMethods.IsHead(context.Request.Method) && context.RequestServices.GetRequiredService<FileEventStore>().Maintenance)
+    { await Error(context, 409, "UPDATE_IN_PROGRESS", "Ứng dụng đang sao lưu và nâng cấp. Vui lòng chờ khởi động lại."); return; }
     if (isApi)
     {
         var requestOrigin = context.Request.Headers.Origin.ToString();
@@ -141,7 +147,7 @@ app.MapGet("/api/session", (HttpContext context, RuntimeSession session) =>
 
 var api = app.MapGroup("/api/v1").RequireRateLimiting("local");
 api.MapGet("/health", (FileEventStore store) => Results.Ok(new
-{ status = "local", version = "2.4.0", runtime = ".NET 10", storage = store.Backend, inference = "local-ollama-or-controlled-cloud", externalCalls = "exact-preview-owner-approved-only", network = "loopback-models; network-none-containers; allowlisted-cloud-per-manifest; opt-in-github-release", milestone = "company-os-2.4-local-setup", deliveryWorkflow = DeliveryTools.WorkflowVersion, softwareWorkflow = SoftwareContracts.DefaultWorkflow.Version }));
+{ status = "local", version = "2.5.0", build = RuntimeBuild.Info, runtime = ".NET 10", storage = store.Backend, inference = "local-ollama-or-controlled-cloud", externalCalls = "exact-preview-owner-approved-only", network = "loopback-models; network-none-containers; allowlisted-cloud-per-manifest; opt-in-github-release", milestone = "company-os-2.5-guided-workspace", deliveryWorkflow = DeliveryTools.WorkflowVersion, softwareWorkflow = SoftwareContracts.DefaultWorkflow.Version }));
 api.MapGet("/providers/local/models", async (ILocalModelProvider provider, CancellationToken ct) => Results.Ok(await provider.ListAsync(ct)));
 api.MapGet("/roles", () => Results.Ok(BuiltInCatalog.Roles));
 api.MapGet("/skills", () => Results.Ok(BuiltInCatalog.Skills));

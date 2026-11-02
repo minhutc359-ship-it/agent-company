@@ -122,10 +122,11 @@ public sealed partial class FileEventStore
             var events = await ReadEventsUnsafeAsync(claim.CompanyId, 0, ct); var run = RebuildSoftwareRun(claim.CompanyId, claim.RunId, events.Where(e => e.RunId == claim.RunId).ToArray())!; var job = run.Jobs.Single(j => j.JobId == claim.JobId);
             if (job.TaskId is null || run.State is "paused" or "cancelled" || job.Status != "running" || job.LeaseToken != claim.LeaseToken || job.LeaseUntil <= DateTimeOffset.UtcNow) throw new ExecutionBlockedException("CONTEXT_READ_NOT_AUTHORIZED");
             var input = SoftwareContext.Build(run, job.RoleId, job.TaskId, job.NodeId, paths);
-            var updated = job with { Input = input, InputSha256 = RuntimeJson.TextHash(input) };
+            var cloud = Binding(run, job.RoleId, job.AgentId).Cloud is not null;
+            var updated = job with { Input = input, InputSha256 = RuntimeJson.TextHash(input), Status = cloud ? "waiting_cloud_approval" : job.Status, CloudApprovalSha256 = null, LeaseToken = cloud ? null : job.LeaseToken, LeaseUntil = cloud ? null : job.LeaseUntil };
             var packet = BuildSoftwareHandoff(run, updated);
             var updatedRun = run with { Handoffs = [.. run.Handoffs ?? [], packet] };
-            await AppendUnsafeAsync(claim.CompanyId, claim.RunId, [DomainEvent.Create("software.handoff.created", packet), AcknowledgeSoftwareContext(updatedRun, updated), DomainEvent.Create("software.job.changed", updated), DomainEvent.Create("software.context.read", new { job.JobId, paths, updated.InputSha256, snapshot = run.Seed.Repository.Sha256 })], events, ct); return updated;
+            await AppendUnsafeAsync(claim.CompanyId, claim.RunId, new[] { DomainEvent.Create("software.handoff.created", packet) }.Concat(cloud ? Array.Empty<DomainEvent>() : new[] { AcknowledgeSoftwareContext(updatedRun, updated) }).Concat(new[] { NodeEvent(job.NodeId, updated.Status), DomainEvent.Create("software.job.changed", updated), DomainEvent.Create("software.context.read", new { job.JobId, paths, updated.InputSha256, snapshot = run.Seed.Repository.Sha256 }) }).ToArray(), events, ct); return updated;
         }
         finally { _gate.Release(); }
     }

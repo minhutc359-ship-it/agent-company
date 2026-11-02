@@ -6,6 +6,10 @@ namespace AICompanyOS.Runtime;
 
 public sealed partial class FileEventStore : IDisposable
 {
+    private bool _maintenance;
+    public bool Maintenance => Volatile.Read(ref _maintenance);
+    public async Task SetMaintenanceAsync(bool value, CancellationToken ct)
+    { await _gate.WaitAsync(ct); try { _maintenance = value; } finally { _gate.Release(); } }
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly string _root;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -253,6 +257,7 @@ public sealed partial class FileEventStore : IDisposable
     private async Task AppendUnsafeAsync(string companyId, string runId, IReadOnlyList<DomainEvent> additions,
         List<DomainEvent> existing, CancellationToken cancellationToken)
     {
+        if (_maintenance) throw new WorkspaceConflictException("Ứng dụng đang chuẩn bị nâng cấp; vui lòng đợi khởi động lại.");
         var sealedEvents = EventIntegrity.Seal(companyId, runId, existing, additions);
         await _journal.AppendAsync(companyId, existing.Count, sealedEvents, cancellationToken);
         existing.AddRange(sealedEvents);

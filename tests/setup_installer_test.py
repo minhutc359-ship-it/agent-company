@@ -15,6 +15,8 @@ import zipfile
 
 spec = importlib.util.spec_from_file_location('setup_aicos', Path(__file__).resolve().parents[1] / 'setup/setup-aicos.py')
 setup = importlib.util.module_from_spec(spec)
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'setup'))
 spec.loader.exec_module(setup)
 
 class InstallerTests(unittest.TestCase):
