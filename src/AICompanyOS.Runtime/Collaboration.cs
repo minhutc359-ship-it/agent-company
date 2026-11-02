@@ -161,6 +161,8 @@ public sealed partial class FileEventStore
                 var events = await ReadEventsUnsafeAsync(company.CompanyId, 0, ct);
                 foreach (var expired in ConsultationsFrom(events).Where(j => j.Status == "running" && j.LeaseUntil <= DateTimeOffset.UtcNow))
                     await AppendUnsafeAsync(company.CompanyId, expired.RunId, [DomainEvent.Create("consultation.changed", expired with { Status = "interrupted", LeaseToken = null, Error = "LEASE_EXPIRED" })], events, ct);
+                foreach (var discussion in DiscussionsFrom(events).Where(d => d.Status == "active").ToArray())
+                    if (discussion.JobIds.LastOrDefault() is { } prior) await AdvanceTeamDiscussionUnsafeAsync(company.CompanyId, prior, events, ct);
                 var job = ConsultationsFrom(events).FirstOrDefault(j => j.Status == "queued" && j.Attempts < 2);
                 if (job is null) continue;
                 var claimed = job with { Status = "running", Attempts = job.Attempts + 1, WorkerId = worker, LeaseToken = Guid.NewGuid().ToString("N"), LeaseUntil = DateTimeOffset.UtcNow.AddSeconds(30) };
@@ -212,6 +214,7 @@ public sealed partial class FileEventStore
             }
             additions.Add(DomainEvent.Create("consultation.changed", job with { Status = result is null ? "failed" : "completed", LeaseToken = null, LeaseUntil = null, Error = error, Usage = result?.Usage, OutputSha256 = result?.Sha256 }));
             await AppendUnsafeAsync(claim.CompanyId, claim.RunId, additions, events, ct);
+            await AdvanceTeamDiscussionUnsafeAsync(claim.CompanyId, job.JobId, events, ct);
         }
         finally { _gate.Release(); }
     }
@@ -221,6 +224,7 @@ public sealed partial class FileEventStore
         try
         {
             var events = await ReadEventsUnsafeAsync(company, 0, ct); var job = ConsultationsFrom(events).FirstOrDefault(j => j.JobId == jobId) ?? throw new KeyNotFoundException();
+            if (DiscussionsFrom(events).Any(d => d.JobIds.Contains(jobId) && d.Status == "cancelled")) throw new WorkspaceConflictException("Hội ý này đã dừng; tạo phiên mới để tiếp tục.");
             if (job.Status is not ("failed" or "interrupted") || job.Attempts >= 2) throw new WorkspaceConflictException("Consultation has no remaining retry.");
             var queued = job with { Status = "queued", LeaseToken = null, LeaseUntil = null, Error = null };
             await AppendUnsafeAsync(company, job.RunId, [DomainEvent.Create("consultation.changed", queued)], events, ct); return queued;

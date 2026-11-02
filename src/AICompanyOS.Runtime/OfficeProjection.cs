@@ -117,7 +117,7 @@ public sealed partial class FileEventStore
                 .Select(s => new SourceSummary(s.SourceId, s.Revision, s.Title, s.ContentSha256, s.ImportedAt, s.Content.Length, s.Kind, s.Classification, s.ParserVersion, s.OriginalName, s.OriginalSha256)).ToArray();
             var workbench = new CompanyWorkbench(ProfileFrom(events), ProjectsFrom(events), ConfigurationsFrom(events), SkillsFrom(events), WorkflowsFrom(events),
                 SoftwareRunsFrom(companyId, events), InteractionsFrom(events), MeetingsFrom(events), ConsultationsFrom(events), BranchesFrom(events),
-                CloudProvidersFrom(events), EgressManifestsFrom(events));
+                CloudProvidersFrom(events), EgressManifestsFrom(events), DiscussionsFrom(events));
             return new(Backend, runs, agents, events.Select(e => new EventSummary(e.Seq, e.EventId, e.RunId, e.Type, e.CreatedAt)).ToArray(),
                 sources, CanonicalFrom(events), ProposalsFrom(events), ProjectOffice(companyId, agents, events), workbench);
         }

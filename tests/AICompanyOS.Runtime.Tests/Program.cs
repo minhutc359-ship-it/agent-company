@@ -99,6 +99,7 @@ await InferenceTests.RunAsync();
 await DeliveryTests.RunAsync();
 await SoftwareTests.RunAsync();
 await StarterTests.RunAsync();
+await SetupTests.RunAsync();
 
 static void Assert(bool condition, string message)
 {

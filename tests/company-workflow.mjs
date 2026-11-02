@@ -23,7 +23,7 @@ const modelServer = createServer(async (req, res) => {
   let result;
   if (context.snapshot?.schema === 'aicos/public-collaboration/v2') result = { summary: 'Public fixture: preserve the approved scope. <img src="https://example.invalid/leak" onerror="window.companyLeak=1">', actionItems: ['Owner must review the actual receipts.'], citations: [] };
   else if (context.role === 'ba') result = { title: 'Non-empty validation', goals: ['Reject empty string input.'], acceptance: [{ id: 'AC-001', description: 'Empty values fail and valid values pass.', verification: 'test' }], assumptions: [], openQuestions: [] };
-  else if (context.role === 'leader') result = { summary: 'Independent code and docs tasks.', tasks: [{ id: 'code', title: 'Fix non-empty validation', agentId: 'dev-agent', dependsOn: [], allowedPaths: ['src/'], acceptanceIds: ['AC-001'] }, { id: 'docs', title: 'Document the validation rule', agentId: 'dev-2', dependsOn: [], allowedPaths: ['docs/'], acceptanceIds: ['AC-001'] }] };
+  else if (context.role === 'leader') result = { summary: 'Independent code and docs tasks.', tasks: [{ id: 'code', title: 'Fix non-empty validation', agentId: 'dev-agent', dependsOn: [], allowedPaths: ['src/'], acceptanceIds: ['AC-001'] }, { id: 'docs', title: 'Document the validation rule', agentId: context.availableDevAgents.find(id => id !== 'dev-agent') ?? 'dev-agent', dependsOn: [], allowedPaths: ['docs/'], acceptanceIds: ['AC-001'] }] };
   else if (context.role === 'dev') {
     const path = context.task.id === 'code' ? 'src/validator.cjs' : 'docs/NOTES.md', file = context.repositoryFiles.find(f => f.path === path);
     const hasFailure = Array.isArray(context.feedback) && context.feedback.some(r => r.status === 'failed');
@@ -240,12 +240,59 @@ try {
   check(await page.locator('#searchQuery').evaluate(input => document.activeElement === input), 'The Work Mode search shortcut opens Knowledge and focuses its search input.');
   await page.click('[data-view=company]');
   await page.selectOption('#companySelect', 'software-studio'); await page.waitForFunction(() => document.getElementById('companyDisplayName').textContent === 'Software Delivery Studio');
+  await page.click('[data-company-tab=collaboration]'); await page.click('#companyTeamDiscussion');
+  await page.fill('#teamQuestion', 'Coordinate the next review using earlier public replies.');
+  await page.check('input[name=teamMember][value=ba-agent]'); await page.check('input[name=teamMember][value=leader-agent]'); await submit('teamDiscussionForm');
+  wb = await waitFor(w => w.teamDiscussions.some(d => d.status === 'completed'), 'Bounded agent-to-agent discussion');
+  const discussion = wb.teamDiscussions.find(d => d.status === 'completed'), turns = discussion.jobIds.map(id => wb.consultations.find(j => j.jobId === id));
+  const secondContext = JSON.parse(JSON.parse(turns[1].input).messages[1].content).snapshot;
+  check(turns.length === 2 && turns.every(j => j.status === 'completed') && secondContext.history.some(m => m.dedupeKey === 'reply-' + turns[0].jobId), 'Automatic discussion passes the first actual agent reply into the second pinned local turn and stops at the participant bound.');
+  await page.locator('.team-discussion').waitFor(); await page.screenshot({ path: join(output, 'company-team-discussion.png'), fullPage: true });
+  await page.click('#companySetup'); await page.locator('#setupModel').waitFor();
+  check((await page.locator('#dialogBody').innerText()).includes('SQLite') && await page.locator('#setupModel option').count() === 2, 'Setup UI displays actual local diagnostics and installed model choices.');
+  await page.locator('.setup-cli > summary').click(); await page.screenshot({ path: join(output, 'company-ai-setup.png'), fullPage: true });
+  for (const box of await page.locator('input[name=setupAgent]').all()) await box.uncheck();
+  await page.check('input[name=setupAgent][value=tester-agent]'); await page.selectOption('#setupModel', model);
+  await Promise.all([page.waitForResponse(r => r.url().endsWith('/agents/tester-agent/configuration') && r.request().method() === 'PUT'), page.click('#setupApplyLocal')]);
+  wb = await workbench(); check(wb.agentConfigurations.find(c => c.agentId === 'tester-agent')?.modelId === model && wb.agentConfigurations.find(c => c.agentId === 'ba-agent').version === 1, 'Bulk setup updates exactly the selected route and preserves unselected agent versions.');
+  await page.click('#setupDemo'); await page.locator('#setupStartDemo').waitFor();
+  const demoBase = '/api/v1/companies/aicos-demo', demo = await api(demoBase + '/workbench');
+  check(await page.inputValue('#companySelect') === 'aicos-demo' && demo.runs.length === 0 && demo.projects.length === 1 && demo.agentConfigurations.every(c => c.modelId === model), 'Demo creation switches the actual UI to a separately configured company without starting AI.');
+  const demoSource = demo.projects[0].repositoryPath;
+  check((await readFile(join(demoSource, 'tests/validator.test.cjs'), 'utf8')).includes('[AC-001]') && (await execFile('git', ['-C', demoSource, 'rev-parse', 'HEAD'])).stdout.trim().length === 40, 'Setup demo writes real committed source and a real failing test.');
+  await page.click('#setupStartDemo');
+  check((await page.inputValue('#softwareObjective')).includes('AC-001') && await page.inputValue('#softwareProject') === 'validation-demo', 'The demo guide pre-fills the actual runnable project and acceptance objective.');
+  await page.click('#closeDialog');
+  const baConfig = demo.agentConfigurations.find(c => c.agentId === 'ba-agent');
+  await api(demoBase + '/agents/ba-agent/configuration', { expectedVersion: baConfig.version, department: baConfig.department, modelId: null, skillRefs: baConfig.skillRefs, maxInputBytes: 10000, maxOutputTokens: 2048 }, 200, 'PUT');
+  await page.click('#newSoftwareRun'); await page.fill('#softwareObjective', 'Manual external-agent handoff demo.'); await submit('createSoftwareRun');
+  await page.locator('#externalSoftwareHandoff').waitFor(); await page.click('#externalSoftwareHandoff');
+  const handoffDownload = page.waitForEvent('download'); await page.click('#downloadExternalHandoff');
+  await (await handoffDownload).saveAs(join(output, 'agent-handoff.zip'));
+  await page.click('#importExternalOutput');
+  const importedSpec = { title: 'Validation demo', goals: ['Reject empty input'], acceptance: [{ id: 'AC-001', description: 'Reject empty, whitespace and null; accept valid strings.', verification: 'test' }], assumptions: [], openQuestions: [] };
+  await page.setInputFiles('#softwareOutputFile', { name: 'result.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(importedSpec)) });
+  await page.waitForFunction(() => JSON.parse(document.getElementById('softwareOutputJson').value).title === 'Validation demo'); await submit('softwareOutputForm');
+  let demoRun;
+  for (let attempt = 0; attempt < 90; attempt++) { demoRun = (await api(demoBase + '/workbench')).runs[0]; if (demoRun.state === 'awaiting_plan_approval') break; await new Promise(r => setTimeout(r, 400)); }
+  check(demoRun.state === 'awaiting_plan_approval' && demoRun.spec.title === importedSpec.title && demoRun.jobs.find(j => j.nodeId === 'ba').workerId === 'owner-supplied', 'Imported CLI/ChatGPT JSON is validated and recorded as Owner-supplied, then the real local Leader continues.');
+  if (capability.available) {
+    await page.locator('#software-preview-scope').click(); await page.locator('#approveSoftwareScope').click();
+    const until = Date.now() + 150000;
+    do { demoRun = (await api(demoBase + '/workbench')).runs[0]; if (['awaiting_final_approval', 'blocked'].includes(demoRun.state)) break; await new Promise(r => setTimeout(r, 500)); } while (Date.now() < until);
+    check(demoRun.state === 'awaiting_final_approval' && demoRun.receipts.some(r => r.tool === 'docker.test' && r.status === 'executed' && r.stdout.includes('AC-001')), 'The installed demo itself completes real Docker build/test and correction before final Owner review.');
+    check(demoRun.candidate.files.find(f => f.path === 'src/validator.cjs').content.includes('trim().length') && (await readFile(join(demoSource, 'src/validator.cjs'), 'utf8')).includes('value != null'), 'The demo candidate fixes whitespace/null validation while preserving its source checkout.');
+  }
+  await page.selectOption('#companySelect', 'software-studio'); await page.waitForFunction(() => document.getElementById('companyDisplayName').textContent === 'Software Delivery Studio');
   const officeBenchmark = await page.evaluate(async () => {
     const { OfficeScene } = await import('/office.js');
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', '0 0 940 530'); svg.style.cssText = 'width:900px;height:530px;max-width:100%'; document.body.append(svg);
     const scene = new OfficeScene(svg, () => {}); const roles = ['ba', 'leader', 'dev', 'tester', 'soc', 'qa', 'subpm'];
     const agents = Array.from({ length: 25 }, (_, i) => ({ agent: { agentId: 'benchmark-' + i, name: 'Fixture ' + i, roleIds: [roles[i % roles.length]] }, state: 'idle', sequence: 1, summary: 'Renderer fixture' }));
     scene.update({ agents }); scene.setVisible(true); const before = [...scene.actors.values()].map(a => `${a.cell.c},${a.cell.r}`);
+    const firstSprite = svg.querySelector('.office-agent svg').getAttribute('viewBox');
+    scene.update({ agents: agents.map(a => ({ ...a, activeRoleId: 'qa', sequence: 2 })) });
+    const stableSprite = svg.querySelector('.office-agent svg').getAttribute('viewBox') === firstSprite;
     scene.update({ agents: agents.map(a => ({ ...a, state: 'waiting_approval', sequence: 2 })) });
     const times = []; let previous;
     for (let i = 0; i < 90; i++) await new Promise(resolve => requestAnimationFrame(t => { if (previous !== undefined) times.push(t - previous); previous = t; resolve(); }));
@@ -253,11 +300,12 @@ try {
     for (let i = 0; i < 3; i++) await new Promise(resolve => requestAnimationFrame(resolve));
     const paused = transforms.every((t, i) => t === svg.querySelectorAll('.office-agent')[i].getAttribute('transform'));
     const after = [...scene.actors.values()].map(a => `${a.cell.c},${a.cell.r}`); times.sort((a, b) => a - b);
-    const result = { agents: scene.actors.size, uniqueCells: new Set(after).size, moved: after.filter((p, i) => p !== before[i]).length, frameMeanMs: times.reduce((a, b) => a + b, 0) / times.length, frameP95Ms: times[Math.floor(times.length * .95)], paused };
+    const result = { agents: scene.actors.size, uniqueCells: new Set(after).size, moved: after.filter((p, i) => p !== before[i]).length, frameMeanMs: times.reduce((a, b) => a + b, 0) / times.length, frameP95Ms: times[Math.floor(times.length * .95)], paused, stableSprite, chairs: svg.querySelectorAll('.office-chair').length };
     scene.setVisible(false); svg.remove(); return result;
   });
   check(officeBenchmark.agents === 25 && officeBenchmark.uniqueCells === 25 && officeBenchmark.moved > 1 && officeBenchmark.paused, 'Actual 25-agent renderer moves concurrently without shared cells and respects visual pause.');
   check(officeBenchmark.frameP95Ms < 250, 'The headless 25-agent fixture must not sustain frame stalls above 250ms.');
+  check(officeBenchmark.stableSprite && officeBenchmark.chairs === 8, 'Character identity remains stable across job role changes, with a real chair at each work station.');
   await page.setViewportSize({ width: 390, height: 844 }); await page.click('[data-company-tab=office]');
   check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Company workspace must fit mobile width.');
   await page.screenshot({ path: join(output, 'company-mobile.png'), fullPage: true });

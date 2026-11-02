@@ -4,7 +4,7 @@ namespace AICompanyOS.Runtime;
 
 public sealed record CompanyWorkbench(CompanyProfile Profile, RepositoryProject[] Projects, AgentConfiguration[] AgentConfigurations,
     SkillPackage[] Skills, SoftwareWorkflow[] Workflows, SoftwareRun[] Runs, PublicInteraction[] Interactions, Meeting[] Meetings, ConsultationJob[] Consultations,
-    ConversationBranch[] Branches, CloudProviderConfiguration[] CloudProviders, EgressManifest[] EgressManifests);
+    ConversationBranch[] Branches, CloudProviderConfiguration[] CloudProviders, EgressManifest[] EgressManifests, TeamDiscussion[] TeamDiscussions);
 
 public sealed partial class FileEventStore
 {
@@ -38,7 +38,7 @@ public sealed partial class FileEventStore
             var events = await ReadEventsUnsafeAsync(company, 0, ct);
             return new(ProfileFrom(events), ProjectsFrom(events), ConfigurationsFrom(events), SkillsFrom(events), WorkflowsFrom(events),
                 SoftwareRunsFrom(company, events), InteractionsFrom(events), MeetingsFrom(events), ConsultationsFrom(events), BranchesFrom(events),
-                CloudProvidersFrom(events), EgressManifestsFrom(events));
+                CloudProvidersFrom(events), EgressManifestsFrom(events), DiscussionsFrom(events));
         }
         finally { _gate.Release(); }
     }

@@ -13,6 +13,13 @@ public static class SoftwareEndpoints
         api.MapPost("/commands/resolve", (CompanyCommandRequest request) => CompanyCommandParser.Resolve(request.Text));
         api.MapPost("/workflows/validate", (SoftwareWorkflow workflow) => SoftwareContracts.Compile(workflow));
         api.MapGet("/company-starters", () => new[] { CompanyStarters.SoftwareTeam });
+        api.MapGet("/setup/status", async (LocalSetupService setup, FileEventStore store, ISoftwareModelClient models, DockerSandbox sandbox, CancellationToken ct) => await setup.CheckAsync(store, models, sandbox, ct));
+        api.MapPost("/setup/demo", async (DemoSetupRequest request, LocalSetupService setup, FileEventStore store, RepositoryService repositories, ISoftwareModelClient models, CancellationToken ct) =>
+            await setup.InstallDemoAsync(store, repositories, request.ModelId, request.ModelId is null ? [] : await models.ListAsync(ct), ct));
+        companies.MapPost("/team-discussions", async (string companyId, TeamDiscussionRequest request, HttpContext context, FileEventStore store, ISoftwareModelClient models, CancellationToken ct) => await store.StartTeamDiscussionAsync(companyId, request, await models.ListAsync(ct), Key(context), ct));
+        companies.MapPost("/team-discussions/{discussionId}/cancel", async (string companyId, string discussionId, FileEventStore store, CancellationToken ct) => await store.CancelTeamDiscussionAsync(companyId, discussionId, ct));
+        companies.MapGet("/software-runs/{runId}/external-handoff/{nodeId}", async Task<IResult> (string companyId, string runId, string nodeId, FileEventStore store, CancellationToken ct) =>
+        { var run = await store.GetSoftwareRunAsync(companyId, runId, ct); return run is null ? Results.NotFound() : Results.File(LocalSetupService.ExportHandoff(run, nodeId), "application/zip", "agent-handoff.zip"); });
         companies.MapPost("/starter-pack", async (string companyId, StarterInstallRequest request, HttpContext context, FileEventStore store, ISoftwareModelClient models, CancellationToken ct) =>
             await store.InstallCompanyStarterAsync(companyId, request, Key(context), request.ModelId is null ? [] : await models.ListAsync(ct), ct));
         companies.MapGet("/workbench", async (string companyId, FileEventStore store, CancellationToken ct) => await store.WorkbenchAsync(companyId, ct));
@@ -38,6 +45,8 @@ public static class SoftwareEndpoints
         companies.MapPost("/consultations/{jobId}/retry", async (string companyId, string jobId, FileEventStore store, CancellationToken ct) => await store.RetryConsultationAsync(companyId, jobId, ct));
         companies.MapPut("/cloud/providers/{providerId}", async (string companyId, string providerId, CloudProviderConfigurationRequest request, FileEventStore store, CancellationToken ct) =>
             await store.ConfigureCloudProviderAsync(companyId, providerId, request, ct));
+        companies.MapPost("/cloud/providers/{providerId}/check", async (string companyId, string providerId, FileEventStore store, RuntimeCredentialVault vault, CancellationToken ct) =>
+        { var workbench = await store.WorkbenchAsync(companyId, ct); if (workbench.Profile.PrivacyMode != "controlled_cloud") throw new WorkspaceConflictException("Bật Controlled Cloud trước khi kiểm tra provider."); var provider = workbench.CloudProviders.FirstOrDefault(p => p.ProviderId == providerId && p.Enabled) ?? throw new KeyNotFoundException(); return await new CloudModelCatalog().CheckAsync(provider, vault.Resolve(companyId, providerId, provider.ProviderType, provider.CredentialRef), ct); });
         companies.MapPut("/cloud/providers/{providerId}/credential", async (string companyId, string providerId, CloudCredentialRequest request, FileEventStore store, RuntimeCredentialVault vault, CancellationToken ct) =>
         {
             var provider = (await store.WorkbenchAsync(companyId, ct)).CloudProviders.FirstOrDefault(p => p.ProviderId == providerId) ?? throw new KeyNotFoundException();

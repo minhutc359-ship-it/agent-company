@@ -15,6 +15,8 @@ These are generated original designs, with prompts excluding franchise character
 
 ## Composition and behavior
 
+The 2.4 arrangement groups the desks into research/planning/engineering and delivery checks, adds native SVG chairs, low-contrast department rugs and an open middle aisle. Large props occupy the perimeter; the east plant sits against the back wall to avoid hiding the reporter station. Actor atlas identity follows its primary role rather than its temporary work role, while interpolated positions control depth order and movement facing. Existing generated PNGs are unchanged.
+
 1. The SVG floor and wall layers establish the existing 18×12 navigation grid.
 2. Furniture and character atlas cells share the same isometric scene coordinates. Desk/meeting tiles stay blocked; added decorative props sit outside navigable perimeter tiles.
 3. Draw ordering uses grid depth; characters move with the existing reservation system instead of crossing occupied cells.
