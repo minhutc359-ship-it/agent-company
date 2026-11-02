@@ -1,4 +1,4 @@
-# API contract: Company OS 2.2 local workspace
+# API contract: Company OS 2.3 local workspace
 
 Base: `http://127.0.0.1:4173/api/v1`. Bootstrap with `GET /api/session`; retain the HttpOnly session cookie. Every write requires exact local `Origin`. Workflow create/ACK/approval/pause/resume/cancel additionally require an identifier-shaped `Idempotency-Key` (1–100 ASCII letters, digits, `_`, `-`).
 
@@ -14,6 +14,7 @@ Errors use `{ "error": { "code": "...", "message": "...", "correlationId": "..."
 | GET | `/roles`, `/skills` | Built-in immutable versioned contracts/metadata |
 | GET/POST | `/companies/{companyId}/agents` | Agent creation `{agentId,name,roleIds}`; no tool grant fields are accepted |
 | PUT | `/companies/{companyId}/agents/{agentId}/roles` | `{roleIds,expectedVersion}`; stale version → 409 |
+| PUT | `/companies/{companyId}/agents/{agentId}/identity` | `{name,roleIds,expectedVersion}`; bounded display name/known roles, preserves tool grants and previous run snapshots; stale version → 409 |
 | GET | `/companies/{companyId}/workspace/snapshot` | Consistent runs/agents/event summaries/sources/canonical/proposals/Office projection at one cursor |
 
 ## Workflow and replay
@@ -89,6 +90,7 @@ Global routes:
 |---|---|---|
 | GET | `/execution/capabilities?image=node:22-alpine` | Check local Linux Docker and an already installed image; no pull or code execution |
 | POST | `/workflows/validate` | Validate a SoftwareWorkflow, finite dependency order and expanded correction rounds; does not run it |
+| GET | `/company-starters` | Built-in suggested team, seven instruction packages and three executable workflow templates; read-only, no installation/model call |
 | POST | `/commands/resolve` | `{text:"/trace"}` → explicit role/skill/workflow/runtime/query resolution; never shell execution |
 
 Company-scoped routes:
@@ -102,6 +104,7 @@ Company-scoped routes:
 | PUT | `/agents/{agentId}/configuration` | `{expectedVersion,department,modelId,skillRefs,maxInputBytes,maxOutputTokens}`; skill refs use `id@version`, model null means Owner typed input |
 | POST | `/skills` | Immutable `{skillId,version,name,instructions,roles,requestedTools}` metadata; no script execution or permission grant |
 | POST | `/workflows` | Install a new validated immutable SoftwareWorkflow version |
+| POST | `/starter-pack` | `{packId:"software-team",modelId?:string}` plus `Idempotency-Key`; installs missing agents/configs/skills/workflows in one guarded event batch, preserves existing customization, validates an optional installed local model, starts no run and grants no tools |
 | POST | `/software-runs` | `{projectId,objective,assignments?,sourceIds?,workflowName?,workflowVersion?,releaseRequested?}` plus Idempotency-Key; pins safe base and all role contexts |
 | GET | `/software-runs/{runId}` | Typed spec/plan, nodes, jobs, patches, receipts, report, grant, handoff packets/ACKs, feedback and release |
 | POST | `/software-runs/{runId}/outputs/{nodeId}` | `{expectedSequence,output}` for a waiting-input BA, Leader or `dev-<taskId>`; strict schema, scopes and before hashes |
@@ -149,4 +152,4 @@ Meeting/report source artifacts and proposed memory survive backup/migration. No
 
 Manifest states are `awaiting_approval`, `denied`, `queued`, `running`, `completed`, `failed` or `interrupted`. It contains the exact credential-free payload, fixed destination, provider/model/API snapshots, public thread/branch, context item provenance/classifications, source excerpts, estimated size/tokens, request hash, consent ID, attempts/lease, measured usage and response/metadata hashes. Restricted context cannot be previewed. Strict Local prevents preview and fences queued work. Output is a bounded `cloud_model_proposal:<providerId>` public interaction, not an accepted decision.
 
-The supported contracts, limits and external acceptance boundaries are defined in [RELEASE_2.2.md](RELEASE_2.2.md). [RELEASE_2.0.md](RELEASE_2.0.md) remains the historical software-workbench contract.
+The current Work Mode/preset/visual-editor contract is in [RELEASE_2.3.md](RELEASE_2.3.md); execution/privacy boundaries remain documented in [RELEASE_2.2.md](RELEASE_2.2.md). [RELEASE_2.0.md](RELEASE_2.0.md) remains historical.

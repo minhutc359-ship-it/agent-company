@@ -12,6 +12,9 @@ public static class SoftwareEndpoints
         api.MapGet("/execution/capabilities", async (string? image, DockerSandbox sandbox, CancellationToken ct) => await sandbox.ProbeAsync(image ?? "node:22-alpine", ct));
         api.MapPost("/commands/resolve", (CompanyCommandRequest request) => CompanyCommandParser.Resolve(request.Text));
         api.MapPost("/workflows/validate", (SoftwareWorkflow workflow) => SoftwareContracts.Compile(workflow));
+        api.MapGet("/company-starters", () => new[] { CompanyStarters.SoftwareTeam });
+        companies.MapPost("/starter-pack", async (string companyId, StarterInstallRequest request, HttpContext context, FileEventStore store, ISoftwareModelClient models, CancellationToken ct) =>
+            await store.InstallCompanyStarterAsync(companyId, request, Key(context), request.ModelId is null ? [] : await models.ListAsync(ct), ct));
         companies.MapGet("/workbench", async (string companyId, FileEventStore store, CancellationToken ct) => await store.WorkbenchAsync(companyId, ct));
         companies.MapPut("/profile", async (string companyId, CompanyProfileRequest request, FileEventStore store, CancellationToken ct) => await store.ConfigureCompanyAsync(companyId, request, ct));
         companies.MapPost("/projects", async (string companyId, ProjectRequest request, FileEventStore store, RepositoryService repositories, CancellationToken ct) => await store.ConfigureProjectAsync(companyId, request, repositories, ct));
@@ -22,6 +25,7 @@ public static class SoftwareEndpoints
             return Results.Ok(new { snapshot.BaseCommit, snapshot.Sha256, files = snapshot.Files.Select(f => new { f.Path, f.Sha256 }), snapshot.OmittedPaths, dependencies, dependencyInventorySha256 = RuntimeJson.Hash(dependencies) });
         });
         companies.MapPut("/agents/{agentId}/configuration", async (string companyId, string agentId, AgentConfigurationRequest request, FileEventStore store, CancellationToken ct) => await store.ConfigureAgentAsync(companyId, agentId, request, ct));
+        companies.MapPut("/agents/{agentId}/identity", async (string companyId, string agentId, AgentIdentityRequest request, FileEventStore store, CancellationToken ct) => await store.UpdateAgentIdentityAsync(companyId, agentId, request, ct));
         companies.MapPost("/skills", async (string companyId, SkillPackage request, FileEventStore store, CancellationToken ct) => await store.InstallSkillAsync(companyId, request, ct));
         companies.MapPost("/workflows", async (string companyId, SoftwareWorkflow request, FileEventStore store, CancellationToken ct) => await store.SaveWorkflowAsync(companyId, request, false, ct));
         companies.MapPost("/interactions", async (string companyId, InteractionRequest request, HttpContext context, FileEventStore store, CancellationToken ct) => await store.AddInteractionAsync(companyId, request, Key(context), ct));

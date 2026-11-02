@@ -1,10 +1,10 @@
 # AI Company OS
 
-**2.2 Company Workbench** provides the end-to-end local personal workspace: multi-company UI, per-agent model/skill configuration, versioned software delivery, isolated Git worktrees, Docker evidence, Owner gates, Living Office, branch-aware conversations, same-snapshot agent/model comparison, hybrid local knowledge, bounded document ingestion, and an optional exact-payload Controlled Cloud gateway.
+**2.3 Living Studio** provides the end-to-end local personal workspace: multi-company UI, per-agent model/skill configuration, versioned software delivery, isolated Git worktrees, Docker evidence, Owner gates, Living Office, branch-aware conversations, same-snapshot agent/model comparison, hybrid local knowledge, bounded document ingestion, and an optional exact-payload Controlled Cloud gateway.
 
 The supported local software flow is **BA → Leader → Owner scope approval → parallel Dev tasks → Build → Tester/SOC/QA → corrective rounds → SubPM → Owner acceptance → source export or explicit Git release**. Model output never substitutes for a command receipt. The original static-document workflow remains available under **Luồng tĩnh**.
 
-See the [2.2 acceptance matrix and explicit limits](docs/RELEASE_2.2.md), [API](docs/API.md), [security boundary](docs/SECURITY.md), and [original specification](AI_Company_OS_2.2_Work_Package/AI_Company_OS_Spec_v2.2.md). Unsupported or externally unverified items are listed explicitly; the runtime does not simulate them.
+See the [2.3 Living Studio release](docs/RELEASE_2.3.md) and [2.2 execution/privacy acceptance matrix](docs/RELEASE_2.2.md), [API](docs/API.md), [security boundary](docs/SECURITY.md), and [original specification](AI_Company_OS_2.2_Work_Package/AI_Company_OS_Spec_v2.2.md). Unsupported or externally unverified items are listed explicitly; the runtime does not simulate them.
 
 **Tiếng Việt:** [Hướng dẫn chi tiết, UI so với ảnh mẫu và các bước còn thiếu](docs/HUONG_DAN_SU_DUNG.vi.md).
 
@@ -42,6 +42,8 @@ Optional environment variables:
 7. A failing actionable test/code check can trigger up to two automatic correction rounds. Missing infrastructure or audit evidence escalates to Owner. Pause/resume/one-step/retry/cancel preserve durable checkpoints; stale workers cannot commit results.
 8. Review the passing candidate, diff/patch, test logs and provenance. Owner delivery revisions produce another candidate and fresh checks within the approved scopes and run budget.
 9. Confirm semantic acceptance and rights. Download the patch/source ZIP or separately preview an explicit scoped Git commit. Optional GitHub push opens a **draft PR**, requires company policy, exact target confirmation and an ephemeral token, and never merges/deploys.
+
+**Work Mode** combines a locally bundled chibi office with actual workflow progress, tasks, evidence, approvals and a public live board. New companies can install the editable suggested eight-member team, seven role skills and three workflow presets; existing configurations are preserved. **Workflow Studio** supports node dragging/keyboard movement, dependency ports/forms, undo/redo, validation, immutable version saving and JSON import/export for the thirteen executable software nodes. See the [2.3 release](docs/RELEASE_2.3.md) and [art direction/provenance](docs/ART_DIRECTION.md).
 
 **Conversations & Meetings** supports public messages, immutable branch forks, local-model replies, 2–4 route comparisons over one context snapshot, meeting participants and saved minutes. Minutes and SubPM reports are source artifacts; proposed memory only becomes canonical after Owner review in Knowledge. Office movement and bubbles project saved execution/public-message events. Visual pause, board-only mode, keyboard selection, follow camera and reduced motion are independent from the worker.
 

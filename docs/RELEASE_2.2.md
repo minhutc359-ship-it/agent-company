@@ -1,5 +1,7 @@
 # 2.2 Company OS: supported contract and acceptance
 
+Historical 2.2 contract. See [2.3](RELEASE_2.3.md) for the new production chibi assets, combined Work Mode, starter team and visual editor.
+
 This release closes the practical end-to-end gaps around the 2.0 software workbench while preserving fail-closed local execution. It implements the locally testable product flow from the 2.2 specification; it does not claim external provider retention terms, model quality, signed desktop distribution or every ecosystem adapter have been certified.
 
 ## Requirement mapping
