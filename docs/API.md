@@ -152,4 +152,21 @@ Meeting/report source artifacts and proposed memory survive backup/migration. No
 
 Manifest states are `awaiting_approval`, `denied`, `queued`, `running`, `completed`, `failed` or `interrupted`. It contains the exact credential-free payload, fixed destination, provider/model/API snapshots, public thread/branch, context item provenance/classifications, source excerpts, estimated size/tokens, request hash, consent ID, attempts/lease, measured usage and response/metadata hashes. Restricted context cannot be previewed. Strict Local prevents preview and fences queued work. Output is a bounded `cloud_model_proposal:<providerId>` public interaction, not an accepted decision.
 
+## Local setup, demo and team discussions 2.4
+
+All routes retain the existing loopback/session/Origin requirements. Paths beginning with `/api/v1/setup` are runtime-scoped; the other paths below follow `/api/v1/companies/{companyId}`.
+
+| Method | Path | Contract |
+| --- | --- | --- |
+| GET | `/api/v1/setup/status` | Runtime/storage/Git/local GGUF catalog and actual local Docker/image diagnostics; PATH-only CLI presence, not CLI authentication; no install or inference |
+| POST | `/api/v1/setup/demo` | `{modelId?:string|null}`; validate selected installed model, create a marked managed Git fixture/company/project and missing starter configuration; preserve edits, no run/inference or implicit grants |
+| POST | `/team-discussions` | `{runId,branchId,question,participants:[{agentId,roleId},...]}` plus Idempotency-Key; 2–4 distinct local agents, frozen bindings, first turn only queued initially; max two active sessions/company |
+| POST | `/team-discussions/{discussionId}/cancel` | Persist cancellation and fence queued/running turns; cancelled sessions cannot retry failed turns |
+| GET | `/software-runs/{runId}/external-handoff/{nodeId}` | ZIP with REQUEST.md, actual pinned context.json, schema.json, checkpoint.json; only current waiting_input BA/Leader/Dev jobs; does not invoke an external CLI |
+| POST | `/cloud/providers/{providerId}/check` | Controlled Cloud only, enabled configured provider, ephemeral credential; fixed-host GET model listing, no workspace payload or text generation; returns availability/names and whether configured model was listed |
+
+`workbench.teamDiscussions` projects each session's immutable participant routes, question/job links, status and maximum output budget. One public answer advances to the next participant with the recorded answer in branch history; completed sessions stop. Claim-time reconciliation recovers advancement if the process stopped after saving a reply. Failed/interrupted jobs retain the explicit consultation retry policy (maximum two attempts). Reply provenance stays `model_proposal`; conversation cannot grant tools or accept canonical memory. Importing external `result.json` uses the existing version-fenced `/outputs/{nodeId}` schema/patch validation and records `owner-supplied` provenance.
+
+CLI initialization: `dotnet AICompanyOS.Runtime.dll --initialize-local [--model <installed-local-model>]` migrates to embedded SQLite with digest verification, creates/opens the managed demo and exits without starting an HTTP server or model inference. This is the command used by the setup bundle; it never supplies provider credentials.
+
 The current Work Mode/preset/visual-editor contract is in [RELEASE_2.3.md](RELEASE_2.3.md); execution/privacy boundaries remain documented in [RELEASE_2.2.md](RELEASE_2.2.md). [RELEASE_2.0.md](RELEASE_2.0.md) remains historical.

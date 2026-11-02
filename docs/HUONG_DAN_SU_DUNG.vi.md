@@ -171,3 +171,15 @@ Nhiều mục trong bảng là **code/chức năng còn thiếu**, không thể 
 - [ ] Kiểm tra bàn phím, màn hình hẹp, reduced motion và 25 nhân viên trên máy đích; kết quả headless CI không thay cho phép đo thiết bị thật.
 
 Hướng dẫn restore và chạy bộ kiểm thử đầy đủ nằm trong [README](../README.md#data-and-recovery). CI hiện kiểm tra domain Linux/Windows và Chromium; Linux yêu cầu Docker thật. Model fixture là dữ liệu kiểm thử giao thức, không phải chứng nhận chất lượng model hoặc tài khoản cloud của bạn.
+
+## 7. Cập nhật 2.4: setup AI, demo và hội ý
+
+[Bộ hướng dẫn setup đầy đủ](../setup/README.vi.md) giải thích từng lựa chọn Ollama / API cloud / CLI, cách cài Windows và Ubuntu, DB SQLite nhúng, Docker và server Ollama riêng ở port 11435. Có launcher, kiểm tra OK/WAIT và chạy tiếp sau reboot/đăng nhập. PostgreSQL không phải dependency của chương trình hiện tại.
+
+Trong Company, mở **Thiết lập AI & Demo**: chọn model local và đúng nhân viên cần áp dụng; không phải tạo API key cho BA/Dev vì đây là vai trò. Với Codex/Gemini/Copilot, dùng CLI ngoài app và nhập JSON qua gói handoff. Website ChatGPT/CLI login không tự cấu hình OpenAI API route. Cloud hiện phục vụ tham vấn có duyệt payload; việc đưa cloud vào worker BA/Leader/Dev vẫn thuộc phần mở rộng trong bảng trên.
+
+**Tạo / mở project demo** tạo repo code/test thật cùng company riêng. **Giao việc demo** điền sẵn mục tiêu, sau đó Owner tạo run và duyệt phạm vi để xem workflow hoạt động. Test ban đầu cố ý thất bại; model phải sửa đúng hành vi và Docker tạo receipts thật. Chạy setup lần nữa giữ nguyên file/config đã sửa.
+
+**Hội ý tự động** cho 2–4 nhân viên local lần lượt phản hồi và đọc trả lời trước, có giới hạn lượt/budget, retry có kiểm soát và nút dừng. Không tự cấp tools hoặc tự phê duyệt kết quả. Bàn giao công việc BA → Leader → Dev vẫn theo workflow đã chụp cấu hình.
+
+Văn phòng 2.4 có cụm bàn, ghế, thảm khu vực, lối đi, decor ở viền phòng và sprite giữ nhận dạng khi agent đổi việc. Thứ tự lớp bám vị trí di chuyển; ảnh atlas được crop từng ô. Đây vẫn là hoạt ảnh 2D từ atlas, không phải model 3D hay bộ frame đa hướng. Bản đồ mới cần nghiệm thu trên máy đích cùng các tiêu chí ở phần 6.

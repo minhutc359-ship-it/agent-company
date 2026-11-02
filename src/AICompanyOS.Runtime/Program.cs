@@ -19,6 +19,17 @@ if (args is ["--restore-backup", var backupPath])
     Console.WriteLine($"Restored {result.EventCount} events; checksum {result.Digest}.");
     return;
 }
+if (args.Length >= 1 && args[0] == "--initialize-local")
+{
+    var model = args.Length == 3 && args[1] == "--model" ? args[2] : null;
+    if (args.Length is not (1 or 3) || args.Length == 3 && args[1] != "--model") throw new ArgumentException("Use --initialize-local [--model installed-model].");
+    using var store = new FileEventStore(dataRoot); await store.InitializeAsync(CancellationToken.None);
+    var manifest = await store.VerifyAsync(CancellationToken.None);
+    if (manifest.Backend != "sqlite") await store.MigrateAsync("sqlite", manifest.Digest, CancellationToken.None);
+    var catalog = model is null ? [] : await new OllamaSoftwareClient(Environment.GetEnvironmentVariable("AICOS_OLLAMA_URL") ?? "http://127.0.0.1:11434/").ListAsync(CancellationToken.None);
+    var demo = await new LocalSetupService(dataRoot).InstallDemoAsync(store, new RepositoryService(dataRoot), model, catalog, CancellationToken.None);
+    Console.WriteLine(JsonSerializer.Serialize(demo, RuntimeJson.Options)); return;
+}
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options =>
@@ -47,6 +58,7 @@ builder.Services.AddSingleton(_ => new FileEventStore(dataRoot));
 builder.Services.AddSingleton<ILocalModelProvider>(_ => new OllamaProvider(Environment.GetEnvironmentVariable("AICOS_OLLAMA_URL") ?? "http://127.0.0.1:11434/"));
 builder.Services.AddHostedService<InferenceWorker>();
 builder.Services.AddSingleton(new RepositoryService(dataRoot));
+builder.Services.AddSingleton(new LocalSetupService(dataRoot));
 builder.Services.AddSingleton(new DockerSandbox(dataRoot));
 builder.Services.AddSingleton<ISoftwareModelClient>(_ => new OllamaSoftwareClient(Environment.GetEnvironmentVariable("AICOS_OLLAMA_URL") ?? "http://127.0.0.1:11434/"));
 builder.Services.AddSingleton<SoftwareCoordinator>();
@@ -129,7 +141,7 @@ app.MapGet("/api/session", (HttpContext context, RuntimeSession session) =>
 
 var api = app.MapGroup("/api/v1").RequireRateLimiting("local");
 api.MapGet("/health", (FileEventStore store) => Results.Ok(new
-{ status = "local", version = "2.2.0", runtime = ".NET 10", storage = store.Backend, inference = "local-ollama-or-controlled-cloud", externalCalls = "exact-preview-owner-approved-only", network = "loopback-models; network-none-containers; allowlisted-cloud-per-manifest; opt-in-github-release", milestone = "company-os-2.2-workbench", deliveryWorkflow = DeliveryTools.WorkflowVersion, softwareWorkflow = SoftwareContracts.DefaultWorkflow.Version }));
+{ status = "local", version = "2.4.0", runtime = ".NET 10", storage = store.Backend, inference = "local-ollama-or-controlled-cloud", externalCalls = "exact-preview-owner-approved-only", network = "loopback-models; network-none-containers; allowlisted-cloud-per-manifest; opt-in-github-release", milestone = "company-os-2.4-local-setup", deliveryWorkflow = DeliveryTools.WorkflowVersion, softwareWorkflow = SoftwareContracts.DefaultWorkflow.Version }));
 api.MapGet("/providers/local/models", async (ILocalModelProvider provider, CancellationToken ct) => Results.Ok(await provider.ListAsync(ct)));
 api.MapGet("/roles", () => Results.Ok(BuiltInCatalog.Roles));
 api.MapGet("/skills", () => Results.Ok(BuiltInCatalog.Skills));

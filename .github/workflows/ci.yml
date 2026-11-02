@@ -20,6 +20,13 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python tests/setup_installer_test.py
+      - name: Verify Windows launcher without installing dependencies
+        if: runner.os == 'Windows'
+        run: cmd /c "setup\Setup-Windows.cmd --plan < nul"
       - run: dotnet restore tests/AICompanyOS.Runtime.Tests --locked-mode
       - run: dotnet build tests/AICompanyOS.Runtime.Tests -c Release --no-restore
       - name: Install the explicit sandbox fixture image (Linux)
@@ -29,10 +36,15 @@ jobs:
         env:
           AICOS_REQUIRE_SANDBOX: ${{ runner.os == 'Linux' && '1' || '0' }}
       - run: dotnet publish src/AICompanyOS.Runtime -c Release --no-restore --self-contained false -o "${{ runner.temp }}/aicos-runtime"
+      - name: Initialize embedded SQLite and the actual demo from the published package
+        run: dotnet "${{ runner.temp }}/aicos-runtime/AICompanyOS.Runtime.dll" --initialize-local
+        env:
+          AICOS_DATA_DIR: ${{ runner.temp }}/aicos-package-demo
+      - run: python setup/build-bundle.py --runtime "${{ runner.temp }}/aicos-runtime" --output "${{ runner.temp }}/AICompanyOS-Full-Setup-2.4.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: ai-company-os-2.3-${{ runner.os }}
-          path: ${{ runner.temp }}/aicos-runtime
+          name: ai-company-os-full-setup-2.4-${{ runner.os }}
+          path: ${{ runner.temp }}/AICompanyOS-Full-Setup-2.4.zip
           if-no-files-found: error
   browser:
     runs-on: ubuntu-latest

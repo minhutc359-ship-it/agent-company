@@ -20,7 +20,7 @@ let companyId = null, companies = [], roles = [], state = {}, selectedRunId = nu
 let cursor = 0, stream = null, streamGeneration = 0, refreshVersion = 0, refreshTimer, retryTimer;
 let createKey = uid('create'), sourceId = uid('source'), agentId = uid('agent'), manifest = null;
 const scene = new OfficeScene($('officeScene'), id => showAgent(id));
-const companyWorkbench = new CompanyWorkbench({ api, request, dialog, refresh, toast, download, showView, editAgent });
+const companyWorkbench = new CompanyWorkbench({ api, request, dialog, refresh, toast, download, showView, editAgent, selectCompany, loadCompanies });
 
 async function request(path, options = {}) {
   const response = await fetch(path, { credentials: 'same-origin', ...options,

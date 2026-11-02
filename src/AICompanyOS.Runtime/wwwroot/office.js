@@ -3,7 +3,7 @@ export const columns = 18;
 export const rows = 12;
 const desks = [
   ['ba', 2, 2, 'RESEARCH'], ['leader', 7, 2, 'PLANNING'], ['dev', 12, 2, 'ENGINEERING'],
-  ['tester', 2, 7, 'TESTING'], ['soc', 7, 7, 'SECURITY'], ['qa', 12, 7, 'QUALITY'], ['subpm', 15, 7, 'REPORTS'], ['owner', 16, 1, 'OWNER']
+  ['tester', 2, 8, 'TESTING'], ['soc', 7, 8, 'SECURITY'], ['qa', 12, 8, 'QUALITY'], ['subpm', 16, 8, 'REPORTS'], ['owner', 16, 2, 'RECEPTION']
 ];
 export const obstacles = new Set([...desks.flatMap(([, c, r]) => [-1, 0, 1].map(dx => `${c + dx},${r}`)), "7,5", "8,5", "9,5"]);
 const key = p => `${p.c},${p.r}`;
@@ -49,7 +49,7 @@ function svgNode(tag, attrs = {}, text) {
   return node;
 }
 function atlasSprite(atlas, index, size, attrs = {}) {
-  const sprite = svgNode('svg', { x: -size / 2, y: -size + 16, width: size, height: size, viewBox: `${index % 4 * 512} ${Math.floor(index / 4) * 512} 512 512`, overflow: 'hidden', 'aria-hidden': 'true', ...attrs });
+  const sprite = svgNode('svg', { x: -size / 2, y: -size + 16, width: size, height: size, viewBox: `${index % 4 * 512 + 3} ${Math.floor(index / 4) * 512 + 3} 506 506`, overflow: 'hidden', 'aria-hidden': 'true', ...attrs });
   sprite.append(svgNode('image', { href: atlas, width: 2048, height: 1024, preserveAspectRatio: 'none' })); return sprite;
 }
 export class OfficeScene {
@@ -75,6 +75,9 @@ export class OfficeScene {
       const [x, y] = iso(c, r);
       this.svg.append(svgNode('polygon', { points: `${x},${y} ${x + 24},${y + 12} ${x},${y + 24} ${x - 24},${y + 12}`, class: `office-tile ${(r + c) % 2 ? 'alternate' : ''}` }));
     }
+    const rug = (c, r, width, height, type) => { const points = [[c,r],[c+width,r],[c+width,r+height],[c,r+height]].map(([x,y]) => iso(x,y)).map(p => p.join(',')).join(' '); this.svg.append(svgNode('polygon', { points, class: 'office-rug ' + type })); };
+    rug(.2, .8, 4.5, 3.3, 'research'); rug(5.2, .8, 4.3, 3.3, 'planning'); rug(10.2, .8, 6.8, 3.3, 'engineering'); rug(.2, 6.8, 16.8, 3.7, 'quality');
+    const aisle = [[.2,5.4],[16.8,5.4]].map(([c,r])=>iso(c,r)); this.svg.append(svgNode('path', { d: `M${aisle[0].join(' ')}L${aisle[1].join(' ')}`, class: 'office-aisle', fill:'none' }));
     this.depthItems = []; this.depthOrder = ''; this.layer = svgNode('g', { class: 'office-depth-layer' }); this.svg.append(this.layer);
     const prop = (index, c, r, size, name) => {
       const [x, y] = iso(c, r), group = svgNode('g', { transform: `translate(${x} ${y + 5})`, class: 'office-decor', 'aria-hidden': 'true' });
@@ -85,13 +88,14 @@ export class OfficeScene {
       const [x, y] = iso(c, r), plate = svgNode('g', { class: 'office-zone-plate' });
       plate.append(svgNode('rect', { x: x - 46, y: y + 28, width: 92, height: 15, rx: 4 }));
       plate.append(svgNode('text', { x, y: y + 39, 'text-anchor': 'middle', class: 'office-zone' }, label)); this.svg.insertBefore(plate, this.layer);
-      prop(0, c, r, 102, 'desk-' + role);
+      prop(0, c, r, 92, 'desk-' + role);
+      const [sx,sy] = iso(c,r+1), chair=svgNode('g',{transform:`translate(${sx} ${sy+4})`,class:'office-chair','aria-hidden':'true'}); chair.append(svgNode('path',{d:'M-11 -1L0 -7L12 -1L12 7L0 13L-11 7Z'})); chair.append(svgNode('path',{d:'M-10 -12L-8 -18L8 -12L11 -6L10 0L-10 -9Z'})); this.layer.append(chair); this.depthItems.push({id:'chair-'+role,depth:c+r+.6,group:chair});
     });
-    prop(1, 8, 5, 128, 'meeting-table');
+    prop(1, 8, 5, 102, 'meeting-table');
     // Decorative props sit at the room perimeter, outside the navigable tiles.
-    prop(2, -1, 3, 91, 'library'); prop(2, -1, 6, 80, 'archive');
-    prop(3, -1, -1, 76, 'plant-north'); prop(3, 18, 10, 76, 'plant-south'); prop(3, -1, 10, 78, 'plant-west');
-    prop(4, 2, 12, 112, 'lounge'); prop(5, 5, -1, 83, 'planning-board'); prop(6, 14, -1, 78, 'servers'); prop(7, 16, -1, 70, 'lamp');
+    prop(2, -1, 3, 83, 'library');
+    prop(3, -1, -1, 48, 'plant-north'); prop(3, 11, -1, 48, 'plant-east'); prop(3, -1, 10, 78, 'plant-west');
+    prop(4, -1, 9, 96, 'lounge'); prop(5, 6, -1, 76, 'planning-board'); prop(6, 16, -1, 68, 'servers'); prop(7, -1, 6, 57, 'lamp');
     this.effects = svgNode('g', { class: 'office-effects', 'aria-hidden': 'true' }); this.svg.append(this.effects);
     this.svg.append(svgNode('text', { x: 36, y: 486, class: 'office-brand' }, 'THE COMPANY / LIVING STUDIO'));
     this.svg.append(svgNode('text', { x: 36, y: 505, class: 'office-caption' }, 'Nhân viên, tiến độ và trao đổi từ dữ liệu đã lưu'));
@@ -111,7 +115,7 @@ export class OfficeScene {
     for (const item of ordered) {
       const id = item.agent.agentId; let actor = this.actors.get(id);
       const desk = desks.find(([role]) => item.agent.roleIds.includes(role)) ?? desks[0];
-      const preferredHome = primaryIds.has(id) ? { c: desk[1], r: desk[2] + 1 } : { c: 5, r: 10 };
+      const preferredHome = { c: desk[1], r: desk[2] + 1 };
       const home = nearestFree(preferredHome, spacedCells(homes)) ?? nearestFree(preferredHome, homes); homes.add(key(home));
       if (!actor) {
         const occupied = new Set([...this.actors.values()].map(a => key(a.cell)));
@@ -133,8 +137,8 @@ export class OfficeScene {
       actor.group.querySelector('title').textContent = `${item.agent.name} · ${stateLabels[item.state] ?? item.state}${item.publicSummary ? ' · ' + item.publicSummary : ''}`;
       actor.group.querySelector('.office-label').textContent = item.agent.name.length > 20 ? item.agent.name.slice(0, 19) + '…' : item.agent.name;
       actor.group.querySelector('.office-bubble').textContent = item.publicSummary ? 'Xem trao đổi ↗' : (stateLabels[item.state] ?? item.state);
-      const role = item.activeRoleId ?? item.agent.roleIds[0];
-      actor.group.querySelector('.office-character-sprite').setAttribute('viewBox', `${avatarIndex(role) % 4 * 512} ${Math.floor(avatarIndex(role) / 4) * 512} 512 512`);
+      const role = item.agent.roleIds[0];
+      actor.group.querySelector('.office-character-sprite').setAttribute('viewBox', `${avatarIndex(role) % 4 * 512 + 3} ${Math.floor(avatarIndex(role) / 4) * 512 + 3} 506 506`);
       actor.group.dataset.state = item.state;
       actor.group.querySelector('.office-state-icon').textContent = ({ researching: '⌕', planning: '▦', coding: '⌨', working: '⌨', testing: '✓', reviewing: '◇', meeting: '••', talking: '••', handoff_pending: '↗', waiting_approval: '?', blocked: '!' })[item.state] ?? '';
       actor.group.setAttribute('aria-label', `${item.agent.name}: ${stateLabels[item.state] ?? item.state}`);
@@ -163,9 +167,9 @@ export class OfficeScene {
     g.querySelector('.office-bubble').onclick = e => { const current = this.actors.get(item.agent.agentId)?.item; if (current?.publicMessageId && this.onPublicMessage) { e.stopPropagation(); this.onPublicMessage(current.publicMessageId, current.publicMessageRunId ?? current.runId); } };
     this.layer.append(g); return g;
   }
-  position(actor, cell) { const [x, y] = iso(cell.c, cell.r); actor.group.setAttribute('transform', `translate(${x} ${y + 7})`); }
+  position(actor, cell) { actor.visualCell = cell; const [x, y] = iso(cell.c, cell.r); actor.group.setAttribute('transform', `translate(${x} ${y + 7})`); }
   sortDepth() {
-    const all = [...this.depthItems, ...[...this.actors.values()].map(a => ({ id: a.id, depth: a.cell.c + a.cell.r + .1, group: a.group }))].sort((a, b) => a.depth - b.depth || a.id.localeCompare(b.id));
+    const all = [...this.depthItems, ...[...this.actors.values()].map(a => ({ id: a.id, depth: (a.visualCell ?? a.cell).c + (a.visualCell ?? a.cell).r + .1, group: a.group }))].sort((a, b) => a.depth - b.depth || a.id.localeCompare(b.id));
     const order = all.map(i => i.id).join('|'); if (order !== this.depthOrder) { for (const item of all) this.layer.append(item.group); this.depthOrder = order; }
   }
   applyCamera() { const c = this.camera; this.svg.setAttribute('viewBox', `${c.x} ${c.y} ${c.width} ${c.height}`); this.svg.dataset.zoomed = String(c.width < 940); }
@@ -184,7 +188,7 @@ export class OfficeScene {
     const dt = this.lastTime ? Math.min(50, time - this.lastTime) : 0; this.lastTime = time;
     if (this.moves.size === 0) {
       const steps = reserveSteps([...this.actors.values()].map(a => ({ id: a.id, cell: a.cell, target: a.target })));
-      for (const step of steps) { const actor = this.actors.get(step.id); this.moves.set(step.id, { actor, next: step.next, elapsed: 0 }); actor.group.dataset.moving = 'true'; }
+      for (const step of steps) { const actor = this.actors.get(step.id); this.moves.set(step.id, { actor, next: step.next, elapsed: 0 }); actor.group.dataset.moving = 'true'; actor.group.dataset.facing = step.next.c - actor.cell.c - (step.next.r - actor.cell.r) < 0 ? 'left' : 'right'; }
     }
     if (this.moves.size === 0) { this.lastTime = 0; return; }
     for (const [id, move] of this.moves) {
