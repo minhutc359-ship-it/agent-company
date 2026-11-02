@@ -19,6 +19,8 @@ This release closes the practical end-to-end gaps around the 2.0 software workbe
 | Git release | Exact accepted candidate, scoped local branch/commit; optional create-only GitHub branch and draft PR | Separate policy/target confirmation/ephemeral token; never merge/deploy |
 | Living Office | Event-derived status, handoff/meeting/public-message behavior, A* reservations, follow, reduced motion and board-only mode | Visualization is not canonical state; 25-agent headless check is not a user-device benchmark |
 
+The office currently uses simple SVG scenery and avatars; it does **not** reproduce the detailed chibi concept illustration. Everyday UI shows human names, objectives and branch names; complete identifiers and hashes remain available in explicit technical disclosures. Scope, destination, commands and exact cloud payload remain inspectable before approval. Workflow Studio currently edits validated versioned JSON, rather than providing the full drag-and-drop palette from the specification. Cloud routes currently serve public conversation proposals, not BA/Leader/Dev software execution. See the [Vietnamese setup and remaining-work guide](HUONG_DAN_SU_DUNG.vi.md).
+
 ## Controlled Cloud invariant
 
 Every outbound model call follows:

@@ -6,6 +6,8 @@ The supported local software flow is **BA → Leader → Owner scope approval �
 
 See the [2.2 acceptance matrix and explicit limits](docs/RELEASE_2.2.md), [API](docs/API.md), [security boundary](docs/SECURITY.md), and [original specification](AI_Company_OS_2.2_Work_Package/AI_Company_OS_Spec_v2.2.md). Unsupported or externally unverified items are listed explicitly; the runtime does not simulate them.
 
+**Tiếng Việt:** [Hướng dẫn chi tiết, UI so với ảnh mẫu và các bước còn thiếu](docs/HUONG_DAN_SU_DUNG.vi.md).
+
 ## Run locally
 
 Install .NET 10 SDK and Git. For actual code execution, install a local Docker engine using **Linux containers**, then explicitly install a trusted image suitable for the project:

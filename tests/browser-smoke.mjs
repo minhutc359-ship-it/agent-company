@@ -215,7 +215,7 @@ async function browserChecks() {
   await page.waitForFunction(() => document.getElementById('runState').textContent === 'Chờ file sản phẩm');
   await page.click('#submit-delivery'); await page.locator('#artifactForm button[type=submit]').click();
   await page.waitForFunction(() => document.getElementById('runState').textContent === 'Chờ duyệt bàn giao');
-  check(await page.locator('#deliveryBody details').count() === 3, 'Manual delivery must run all static checks and display their receipts.');
+  check(await page.locator('#deliveryBody details.packet').count() === 3, 'Manual delivery must run all static checks and display their receipts.');
   await page.click('#preview-delivery');
   await page.frameLocator('#deliveryPreview').locator('h1').waitFor();
   check((await page.frameLocator('#deliveryPreview').locator('h1').innerText()).includes('Tài liệu dự án') && await page.locator('#deliveryPreview').getAttribute('sandbox') === '', 'Isolated preview must render only the static artifact.');
@@ -299,7 +299,7 @@ async function browserChecks() {
   await page.fill('#deliveryCriteria', 'index.html | Keep data local.');
   await page.locator('#prepareDeliveryForm button[type=submit]').click();
   await page.waitForFunction(() => document.getElementById('runState').textContent === 'Chờ duyệt bàn giao');
-  check(await page.locator('#invocations .record').count() === 3 && await page.locator('#deliveryBody details').count() === 3, 'UI must execute and expose the full local AI Dev/check/report pipeline.');
+  check(await page.locator('#invocations .record').count() === 3 && await page.locator('#deliveryBody details.packet').count() === 3, 'UI must execute and expose the full local AI Dev/check/report pipeline.');
   await page.click('#review-delivery'); await page.check('#deliveryAcceptance'); await page.check('#deliveryRights');
   await page.locator('#deliveryReviewForm button[type=submit]').click();
   await page.waitForFunction(() => document.getElementById('runState').textContent === 'Đã bàn giao');

@@ -30,7 +30,7 @@ function nearestFree(target, occupied) {
 }
 const iso = (c, r) => [470 + (c - r) * 24, 60 + (c + r) * 12];
 const colors = { ba: '#819b69', leader: '#bc8b47', dev: '#678b96', tester: '#9f838f', soc: '#79866b', qa: '#ba936e', subpm: '#8d93a5' };
-const stateLabels = { researching: 'Đang phân tích', planning: 'Đang lập kế hoạch', coding: 'Đang tạo patch', testing: 'Đang chạy test', reviewing: 'Đang kiểm tra', waiting_input: 'Chờ input', meeting: 'Đang họp', talking: 'Đang tham vấn', queued: 'Đang chờ AI', working: 'AI local đang xử lý', idle: 'Chưa có invocation', handoff_pending: 'Chờ ACK', waiting_approval: 'Chờ Owner', paused: 'Đã tạm dừng', blocked: 'Cần sửa lại' };
+const stateLabels = { researching: 'Đang phân tích', planning: 'Đang lập kế hoạch', coding: 'Đang tạo patch', testing: 'Đang chạy test', reviewing: 'Đang kiểm tra', waiting_input: 'Chờ input', meeting: 'Đang họp', talking: 'Đang tham vấn', queued: 'Đang chờ AI', working: 'Đang xử lý', idle: 'Sẵn sàng', handoff_pending: 'Chờ ACK', waiting_approval: 'Chờ Owner', paused: 'Đã tạm dừng', blocked: 'Cần sửa lại' };
 function spacedCells(cells) {
   const points = [...cells].map(cell => { const [c, r] = cell.split(',').map(Number); return iso(c, r); });
   const blocked = new Set(cells);
@@ -121,8 +121,9 @@ export class OfficeScene {
       // Reserve every destination, including agents whose state did not change.
       if (destinations.has(key(actor.target))) actor.target = nearestFree(actor.home, destinations);
       destinations.add(key(actor.target));
-      actor.group.querySelector('title').textContent = `${item.agent.name} · ${stateLabels[item.state] ?? item.state} · event #${item.sequence}`;
-      actor.group.querySelector('.office-bubble').textContent = item.publicSummary ? item.publicSummary.slice(0, 45) + (item.publicSummary.length > 45 ? '…' : '') : (stateLabels[item.state] ?? item.state);
+      actor.group.querySelector('title').textContent = `${item.agent.name} · ${stateLabels[item.state] ?? item.state}${item.publicSummary ? ' · ' + item.publicSummary : ''}`;
+      actor.group.querySelector('.office-label').textContent = item.agent.name.length > 20 ? item.agent.name.slice(0, 19) + '…' : item.agent.name;
+      actor.group.querySelector('.office-bubble').textContent = item.publicSummary ? 'Xem trao đổi ↗' : (stateLabels[item.state] ?? item.state);
       actor.group.dataset.state = item.state;
       actor.group.setAttribute('aria-label', `${item.agent.name}: ${stateLabels[item.state] ?? item.state}`);
       if (!this.moves.has(actor.id)) this.position(actor, actor.cell);
