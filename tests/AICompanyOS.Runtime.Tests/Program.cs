@@ -93,8 +93,12 @@ finally
 }
 
 await UpgradeTests.RunAsync();
+await KnowledgeTests.RunAsync();
+await CloudEgressTests.RunAsync();
 await InferenceTests.RunAsync();
 await DeliveryTests.RunAsync();
+await SoftwareTests.RunAsync();
+await StarterTests.RunAsync();
 
 static void Assert(bool condition, string message)
 {

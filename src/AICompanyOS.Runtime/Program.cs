@@ -24,7 +24,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.Listen(IPAddress.Loopback, 4173);
-    options.Limits.MaxRequestBodySize = 24 * 1024 * 1024;
+    options.Limits.MaxRequestBodySize = 180 * 1024 * 1024;
 });
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -46,6 +46,16 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddSingleton(_ => new FileEventStore(dataRoot));
 builder.Services.AddSingleton<ILocalModelProvider>(_ => new OllamaProvider(Environment.GetEnvironmentVariable("AICOS_OLLAMA_URL") ?? "http://127.0.0.1:11434/"));
 builder.Services.AddHostedService<InferenceWorker>();
+builder.Services.AddSingleton(new RepositoryService(dataRoot));
+builder.Services.AddSingleton(new DockerSandbox(dataRoot));
+builder.Services.AddSingleton<ISoftwareModelClient>(_ => new OllamaSoftwareClient(Environment.GetEnvironmentVariable("AICOS_OLLAMA_URL") ?? "http://127.0.0.1:11434/"));
+builder.Services.AddSingleton<SoftwareCoordinator>();
+builder.Services.AddSingleton(provider => new SoftwareReleaseService(provider.GetRequiredService<FileEventStore>(), provider.GetRequiredService<RepositoryService>(), dataRoot));
+builder.Services.AddHostedService<SoftwareWorker>();
+builder.Services.AddHostedService<CollaborationWorker>();
+builder.Services.AddSingleton<RuntimeCredentialVault>();
+builder.Services.AddSingleton<ICloudProviderClient, CloudProviderClient>();
+builder.Services.AddHostedService<CloudEgressWorker>();
 builder.Services.AddSingleton(new RuntimeSession(Convert.ToHexString(RandomNumberGenerator.GetBytes(32))));
 
 var app = builder.Build();
@@ -94,6 +104,8 @@ app.Use(async (context, next) =>
         var (status, code, message) = error switch
         {
             ModelProviderException providerError => (502, providerError.Code, "Ollama is unavailable or the selected local model failed its capability checks. Check the local server and installed model."),
+            CloudProviderException cloudError => (502, cloudError.Code, "The approved cloud request failed or its response did not satisfy the pinned contract. Inspect the egress record before retrying."),
+            ExecutionBlockedException blocked => (409, blocked.Message, "Execution was blocked. Check the pinned repository, Docker Linux engine/image and recorded scope; no host execution fallback is allowed."),
             WorkspaceConflictException => (409, "VERSION_CONFLICT", error.Message),
             KeyNotFoundException => (404, "NOT_FOUND", "The requested record does not exist in this company."),
             ArgumentException => (400, "INVALID_REQUEST", error.Message),
@@ -117,7 +129,7 @@ app.MapGet("/api/session", (HttpContext context, RuntimeSession session) =>
 
 var api = app.MapGroup("/api/v1").RequireRateLimiting("local");
 api.MapGet("/health", (FileEventStore store) => Results.Ok(new
-{ status = "local", version = "1.0.0", runtime = ".NET 10", storage = store.Backend, inference = "local-ollama-opt-in", externalCalls = false, network = "loopback-only-on-request", milestone = "static-delivery", deliveryWorkflow = DeliveryTools.WorkflowVersion }));
+{ status = "local", version = "2.2.0", runtime = ".NET 10", storage = store.Backend, inference = "local-ollama-or-controlled-cloud", externalCalls = "exact-preview-owner-approved-only", network = "loopback-models; network-none-containers; allowlisted-cloud-per-manifest; opt-in-github-release", milestone = "company-os-2.2-workbench", deliveryWorkflow = DeliveryTools.WorkflowVersion, softwareWorkflow = SoftwareContracts.DefaultWorkflow.Version }));
 api.MapGet("/providers/local/models", async (ILocalModelProvider provider, CancellationToken ct) => Results.Ok(await provider.ListAsync(ct)));
 api.MapGet("/roles", () => Results.Ok(BuiltInCatalog.Roles));
 api.MapGet("/skills", () => Results.Ok(BuiltInCatalog.Skills));
@@ -261,14 +273,29 @@ companies.MapGet("/events/stream", async (string companyId, long? afterSeq, Http
 });
 
 companies.MapGet("/sources", async (string companyId, FileEventStore store, CancellationToken ct) => Results.Ok((await store.ListSourcesAsync(companyId, ct))
-    .Select(s => new { s.SourceId, s.Revision, s.Title, s.ContentSha256, s.ImportedAt, characters = s.Content.Length })));
+    .Select(s => new { s.SourceId, s.Revision, s.Title, s.ContentSha256, s.ImportedAt, s.Kind, s.Classification, s.ParserVersion, s.OriginalName, s.OriginalSha256, characters = s.Content.Length })));
 companies.MapPost("/sources", async (string companyId, ImportSourceRequest request, FileEventStore store, CancellationToken ct) => Results.Ok(await store.ImportSourceAsync(companyId, request, ct)));
+companies.MapPost("/sources/file", async (string companyId, HttpContext context, FileEventStore store, CancellationToken ct) =>
+{
+    var form = await context.Request.ReadFormAsync(ct);
+    var file = form.Files.Count == 1 ? form.Files[0] : throw new ArgumentException("Upload exactly one document.");
+    if (file.Length is <= 0 or > DocumentIngestion.MaxUploadBytes) throw new ArgumentException("Document must contain 1 byte to 8 MiB.");
+    await using var input = file.OpenReadStream();
+    using var output = new MemoryStream(); await input.CopyToAsync(output, ct);
+    var parsed = DocumentIngestion.Parse(file.FileName, file.ContentType, output.ToArray(), form["title"].ToString());
+    var sourceId = form["sourceId"].ToString();
+    if (!int.TryParse(form["expectedRevision"].ToString(), out var expectedRevision) || expectedRevision < 0) throw new ArgumentException("Invalid source revision.");
+    var classification = form["classification"].ToString();
+    return Results.Ok(await store.ImportSourceAsync(companyId, new(sourceId, parsed.Title, parsed.Content, expectedRevision, parsed.Kind,
+        classification, parsed.ParserVersion, parsed.OriginalName, parsed.OriginalSha256), ct));
+});
 companies.MapGet("/sources/{sourceId}/revisions/{revision:int}", async Task<IResult> (string companyId, string sourceId, int revision, FileEventStore store, CancellationToken ct) =>
 {
     var source = await store.GetSourceAsync(companyId, sourceId, revision, ct);
     return source is null ? Results.NotFound() : Results.Ok(source);
 });
 companies.MapGet("/knowledge/search", async (string companyId, string q, FileEventStore store, CancellationToken ct) => Results.Ok(await store.SearchAsync(companyId, q, ct)));
+companies.MapGet("/knowledge/index-status", async (string companyId, FileEventStore store, CancellationToken ct) => Results.Ok(await store.KnowledgeIndexStatusAsync(companyId, ct)));
 companies.MapGet("/memory/proposals", async (string companyId, FileEventStore store, CancellationToken ct) => Results.Ok(await store.ListProposalsAsync(companyId, ct)));
 companies.MapPost("/memory/proposals", async (string companyId, MemoryProposalRequest request, FileEventStore store, CancellationToken ct) => Results.Ok(await store.ProposeMemoryAsync(companyId, request, ct)));
 companies.MapPost("/memory/proposals/{proposalId}/review", async (string companyId, string proposalId, MemoryReviewRequest request, FileEventStore store, CancellationToken ct) => Results.Ok(await store.ReviewMemoryAsync(companyId, proposalId, request, ct)));
@@ -279,6 +306,7 @@ api.MapPost("/backups/export", async (BackupRequest request, FileEventStore stor
     Results.File(await store.ExportBackupAsync(request.Passphrase, ct), "application/octet-stream", $"ai-company-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.aicos")).RequireRateLimiting("backup");
 api.MapPost("/backups/validate", (ValidateBackupRequest request) =>
 {
+    if (request.ArchiveBase64 is null || request.ArchiveBase64.Length > (BackupCodec.MaxArchiveBytes * 4L / 3) + 8) throw new ArgumentException("Backup exceeds the size limit.");
     byte[] bytes;
     try { bytes = Convert.FromBase64String(request.ArchiveBase64); }
     catch (FormatException) { throw new ArgumentException("Invalid backup encoding."); }
@@ -289,6 +317,7 @@ api.MapPost("/backups/validate", (ValidateBackupRequest request) =>
     }
     catch (InvalidDataException) { return Results.BadRequest(new { error = new { code = "INVALID_BACKUP", message = "The backup could not be authenticated or decoded." } }); }
 }).RequireRateLimiting("backup");
+SoftwareEndpoints.Map(companies, api);
 app.Run();
 
 static string CommandKey(HttpContext context)

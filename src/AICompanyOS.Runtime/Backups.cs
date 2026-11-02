@@ -13,7 +13,7 @@ public sealed record BackupValidation(int CompanyLogs, int EventCount, string Di
 public static class BackupCodec
 {
     private const int Iterations = 600_000;
-    private const int MaxArchiveBytes = 16 * 1024 * 1024;
+    public const int MaxArchiveBytes = 128 * 1024 * 1024;
     public static byte[] Encrypt(BackupBundle bundle, string passphrase)
     {
         ValidatePassphrase(passphrase);
@@ -23,7 +23,7 @@ public static class BackupCodec
         var plaintext = JsonSerializer.SerializeToUtf8Bytes(bundle, RuntimeJson.Options);
         try
         {
-            if (plaintext.Length > MaxArchiveBytes / 2) throw new ArgumentException("This backup exceeds the milestone size limit (8 MiB before encryption).");
+            if (plaintext.Length > MaxArchiveBytes / 2) throw new ArgumentException("This backup exceeds the size limit (64 MiB before encryption).");
             var ciphertext = new byte[plaintext.Length];
             var tag = new byte[16];
             using var aes = new AesGcm(key, tag.Length);

@@ -1,10 +1,12 @@
 import { OfficeScene } from './office.js';
 import { renderDelivery } from './delivery.js';
+import { CompanyWorkbench } from './workbench.js';
+import { technicalDetails, agentName, runName } from './presentation.js';
 const $ = id => document.getElementById(id);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const uid = prefix => `${prefix}-${crypto.randomUUID()}`;
 const empty = message => `<div class="empty">${escape(message)}</div>`;
-const titles = {
+const titles = { company: ['Công ty AI của bạn.', 'Từ yêu cầu đến patch, kiểm chứng và bàn giao trong một workspace.'],
   work: ['Điều phối công việc.', 'Từ yêu cầu đến bàn giao. Mỗi bước đều có dấu vết.'],
   office: ['Một văn phòng, một nguồn thật.', 'Trạng thái nhân viên được chiếu từ sự kiện đã lưu.'],
   knowledge: ['Kiến thức có nguồn gốc.', 'Lưu tài liệu, đối chiếu trích dẫn và duyệt bộ nhớ chính thức.'],
@@ -12,15 +14,17 @@ const titles = {
   storage: ['Dữ liệu do bạn làm chủ.', 'Lưu trên thiết bị, kiểm tra toàn vẹn và sao lưu có mã hóa.']
 };
 const labels = { delivered: 'Đã bàn giao', awaiting_delivery_input: 'Chờ file sản phẩm', awaiting_delivery_approval: 'Chờ duyệt bàn giao', delivery_blocked: 'Kiểm tra chưa đạt', delivery_revision_requested: 'Cần sửa sản phẩm', checking_delivery: 'Đang kiểm tra', queued: 'Đang chờ AI', running: 'AI local đang xử lý', working: 'AI local đang xử lý', interrupted: 'Cần retry', failed: 'Thất bại', completed: 'Đã lưu output', awaiting_handoff: 'Chờ bàn giao', awaiting_approval: 'Chờ Owner', approved: 'Plan đã duyệt', revision_requested: 'Cần sửa kế hoạch', paused: 'Đã tạm dừng', cancelled: 'Đã hủy', idle: 'Chưa có invocation', handoff_pending: 'Chờ ACK', waiting_approval: 'Chờ Owner', blocked: 'Cần sửa lại' };
-const eventNames = { 'delivery.prepared': 'Owner cho phép tạo gói file', 'delivery.artifact.produced': 'Dev đã tạo artifact', 'delivery.check.executed': 'Đã chạy static check', 'delivery.report.produced': 'SubPM tổng hợp receipts', 'delivery.reviewed': 'Owner quyết định bàn giao', 'delivery.command': 'Ghi checkpoint bàn giao', 'invocation.queued': 'Xếp hàng AI local', 'invocation.started': 'Bắt đầu gọi AI local', 'invocation.heartbeat': 'Gia hạn lease', 'invocation.completed': 'Đã lưu output AI', 'invocation.failed': 'AI bị chặn hoặc thất bại', 'invocation.interrupted': 'Invocation bị gián đoạn', 'invocation.retry_requested': 'Yêu cầu retry AI', 'workflow.created': 'Tạo workflow', 'spec.produced': 'Lưu spec', 'handoff.requested': 'Yêu cầu bàn giao', 'handoff.acknowledged': 'Ghi nhận ACK', 'plan.produced': 'Lưu plan', 'approval.required': 'Chờ Owner duyệt', 'owner.approval.decided': 'Owner đã quyết định', 'workflow.paused': 'Tạm dừng workflow', 'workflow.resumed': 'Tiếp tục workflow', 'workflow.cancelled': 'Hủy workflow', 'agent.created': 'Thêm agent', 'agent.roles.changed': 'Cập nhật vai trò', 'source.imported': 'Lưu phiên bản nguồn', 'memory.proposed': 'Đề xuất bộ nhớ', 'memory.accepted': 'Duyệt bộ nhớ', 'memory.rejected': 'Từ chối bộ nhớ' };
-let companyId = null, companies = [], roles = [], state = {}, selectedRunId = null, view = 'work';
+Object.assign(labels, { idle: 'Sẵn sàng', talking: 'Đang trao đổi', meeting: 'Đang họp', researching: 'Đang nghiên cứu', planning: 'Đang lập kế hoạch', coding: 'Đang lập trình', testing: 'Đang kiểm thử', reviewing: 'Đang đánh giá', waiting_input: 'Chờ thông tin' });
+const eventNames = { 'delivery.prepared': 'Owner cho phép tạo gói file', 'delivery.artifact.produced': 'Dev đã tạo artifact', 'delivery.check.executed': 'Đã chạy static check', 'delivery.report.produced': 'SubPM tổng hợp receipts', 'delivery.reviewed': 'Owner quyết định bàn giao', 'delivery.command': 'Ghi checkpoint bàn giao', 'invocation.queued': 'Xếp hàng AI local', 'invocation.started': 'Bắt đầu gọi AI local', 'invocation.heartbeat': 'Gia hạn lease', 'invocation.completed': 'Đã lưu output AI', 'invocation.failed': 'AI bị chặn hoặc thất bại', 'invocation.interrupted': 'Invocation bị gián đoạn', 'invocation.retry_requested': 'Yêu cầu retry AI', 'workflow.created': 'Tạo workflow', 'spec.produced': 'Lưu spec', 'handoff.requested': 'Yêu cầu bàn giao', 'handoff.acknowledged': 'Ghi nhận ACK', 'plan.produced': 'Lưu plan', 'approval.required': 'Chờ Owner duyệt', 'owner.approval.decided': 'Owner đã quyết định', 'workflow.paused': 'Tạm dừng workflow', 'workflow.resumed': 'Tiếp tục workflow', 'workflow.cancelled': 'Hủy workflow', 'agent.created': 'Thêm agent', 'agent.roles.changed': 'Cập nhật tên / vai trò', 'source.imported': 'Lưu phiên bản nguồn', 'memory.proposed': 'Đề xuất bộ nhớ', 'memory.accepted': 'Duyệt bộ nhớ', 'memory.rejected': 'Từ chối bộ nhớ' };
+let companyId = null, companies = [], roles = [], state = {}, selectedRunId = null, view = 'company';
 let cursor = 0, stream = null, streamGeneration = 0, refreshVersion = 0, refreshTimer, retryTimer;
 let createKey = uid('create'), sourceId = uid('source'), agentId = uid('agent'), manifest = null;
 const scene = new OfficeScene($('officeScene'), id => showAgent(id));
+const companyWorkbench = new CompanyWorkbench({ api, request, dialog, refresh, toast, download, showView, editAgent });
 
 async function request(path, options = {}) {
   const response = await fetch(path, { credentials: 'same-origin', ...options,
-    headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers } });
+    headers: { ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...options.headers } });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error((body.error?.code ? `${body.error.code}: ` : '') + (body.error?.message || (typeof body.error === 'string' ? body.error : `Thao tác thất bại (${response.status}).`)));
@@ -41,10 +45,11 @@ function bindForm(id, action) {
   };
 }
 function click(id, action) { $(id).onclick = () => Promise.resolve().then(action).catch(error => toast(error.message)); }
-function dialog(title, content) { $('dialogTitle').textContent = title; $('dialogBody').innerHTML = content; if (!$('detailDialog').open) $('detailDialog').showModal(); }
+function dialog(title, content) { $('detailDialog').classList.remove('wide-dialog'); $('dialogTitle').textContent = title; $('dialogBody').innerHTML = content; if (!$('detailDialog').open) $('detailDialog').showModal(); }
 click('closeDialog', () => $('detailDialog').close());
 function showView(next) {
   view = next;
+  document.body.dataset.page = next;
   document.querySelectorAll('.view').forEach(node => node.hidden = node.id !== `view-${next}`);
   document.querySelectorAll('[data-view]').forEach(button => {
     button.classList.toggle('active', button.dataset.view === next);
@@ -52,6 +57,7 @@ function showView(next) {
   });
   [$('pageTitle').textContent, $('pageDescription').textContent] = titles[next];
   scene.setVisible(next === 'office' && !$('boardOnly').checked);
+  companyWorkbench.setVisible(next === 'company');
 }
 document.querySelectorAll('[data-view]').forEach(button => button.onclick = () => showView(button.dataset.view));
 function roleChecks(chosen = []) { return roles.map(role => `<label><input type="checkbox" name="roles" value="${escape(role.roleId)}" ${chosen.includes(role.roleId) ? 'checked' : ''}> ${escape(role.roleId.toUpperCase())}</label>`).join(''); }
@@ -61,16 +67,17 @@ async function refresh() {
   if (!companyId) return;
   const version = ++refreshVersion, company = companyId, path = base();
   const snapshot = await api(`${path}/workspace/snapshot`);
-  const { runs, agents, events, sources, canonical, proposals, office } = snapshot;
+  const { runs, agents, events, sources, canonical, proposals, office, workbench } = snapshot;
   const health = { storage: snapshot.storage };
   if (version !== refreshVersion || company !== companyId) return;
-  state = { health, runs, agents, events, sources, canonical, proposals, office };
+  state = { health, runs, agents, events, sources, canonical, proposals, office, workbench };
   cursor = Math.max(cursor, events.at(-1)?.seq ?? 0);
   if (!runs.some(run => run.runId === selectedRunId)) selectedRunId = runs[0]?.runId ?? null;
   render();
 }
 function scheduleRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(() => refresh().catch(error => toast(error.message)), 140); }
 function render() {
+  companyWorkbench.update(companyId, companies, state);
   const { runs = [], agents = [], events = [], sources = [], canonical = [], proposals = [] } = state;
   $('storageBadge').textContent = `Storage: ${state.health?.storage === 'sqlite' ? 'SQLite' : 'File Store'}`;
   $('statRuns').textContent = runs.length;
@@ -80,7 +87,7 @@ function render() {
   $('runs').innerHTML = runs.map(run => `<button class="run-item ${run.runId === selectedRunId ? 'selected' : ''}" data-run="${escape(run.runId)}"><b>${escape(run.objective.slice(0, 100))}</b><span class="tag">${escape(labels[run.state] ?? run.state)}</span> <span class="small">#${run.lastSequence}</span></button>`).join('') || empty('Chưa có nhiệm vụ. Tạo yêu cầu đầu tiên ở trên.');
   document.querySelectorAll('[data-run]').forEach(button => button.onclick = () => { selectedRunId = button.dataset.run; render(); });
   $('eventCursor').textContent = `#${events.at(-1)?.seq ?? 0}`;
-  $('events').innerHTML = [...events].reverse().slice(0, 80).map(e => `<div class="event" id="event-${e.seq}"><span class="event-seq">${e.seq}</span><div><b>${escape(eventNames[e.type] ?? e.type)}</b><p>${escape(e.runId)}<br>${escape(new Date(e.createdAt).toLocaleString('vi-VN'))}</p></div></div>`).join('') || empty('Sự kiện sẽ xuất hiện khi có thao tác.');
+  $('events').innerHTML = [...events].reverse().slice(0, 80).map(e => `<div class="event" id="event-${e.seq}"><span class="event-seq">${e.seq}</span><div><b>${escape(eventNames[e.type] ?? e.type.replaceAll('.', ' · '))}</b><p>${escape(runName(state, e.runId))}<br>${escape(new Date(e.createdAt).toLocaleString('vi-VN'))}</p>${technicalDetails({ type: e.type, runId: e.runId }, 'Chi tiết sự kiện')}</div></div>`).join('') || empty('Sự kiện sẽ xuất hiện khi có thao tác.');
   renderRun(runs.find(run => run.runId === selectedRunId));
   renderDelivery(runs.find(run => run.runId === selectedRunId), { post, request, dialog, refresh, toast, download, agents, base: base() });
   for (const [selectId, role] of [['baAgent', 'ba'], ['leaderAgent', 'leader']]) {
@@ -90,11 +97,12 @@ function render() {
   }
   const chosenSources = [...$('modelSources').selectedOptions].map(option => option.value);
   $('modelSources').innerHTML = sources.map(source => `<option value="${escape(source.sourceId)}" ${chosenSources.includes(source.sourceId) ? 'selected' : ''}>${escape(source.title)} · v${source.revision}</option>`).join('');
-  $('sourceList').innerHTML = sources.map(source => `<div class="record"><h3>${escape(source.title)}</h3><span class="meta">v${source.revision} · ${source.characters} ký tự</span><p class="hash">${escape(source.contentSha256)}</p><button class="button" data-source="${escape(source.sourceId)}" data-revision="${source.revision}">Mở nguồn</button><button class="button" data-revise="${escape(source.sourceId)}">Thêm phiên bản</button></div>`).join('') || empty('Chưa có nguồn tài liệu.');
+  $('sourceList').innerHTML = sources.map(source => `<div class="record"><h3>${escape(source.title)}</h3><p class="meta">Phiên bản ${source.revision} · ${source.characters.toLocaleString('vi-VN')} ký tự · ${escape(source.kind)} · ${escape(source.classification)}</p><button class="button" data-source="${escape(source.sourceId)}" data-revision="${source.revision}">Mở nguồn</button><button class="button" data-revise="${escape(source.sourceId)}">Thêm phiên bản</button>${technicalDetails({ sourceId: source.sourceId, contentSha256: source.contentSha256, originalSha256: source.originalSha256 }, 'Thông tin kiểm chứng')}</div>`).join('') || empty('Chưa có nguồn tài liệu.');
   document.querySelectorAll('[data-source]').forEach(button => button.onclick = () => showSource(button.dataset.source, Number(button.dataset.revision)).catch(error => toast(error.message)));
   document.querySelectorAll('[data-revise]').forEach(button => button.onclick = () => reviseSource(button.dataset.revise).catch(error => toast(error.message)));
-  $('canonical').innerHTML = canonical.map(record => `<div class="record"><h3>${escape(record.stableKey)} <span class="tag success">${escape(record.kind)} · v${record.version}</span></h3><p>${escape(record.body)}</p><span class="meta">Owner đã duyệt · ${record.citations.length} trích dẫn${record.citations.some(c => sources.find(s => s.sourceId === c.sourceId)?.revision !== c.revision) ? ' · Nguồn đã có bản mới, cần đối chiếu' : ''}</span></div>`).join('') || empty('Chưa có bộ nhớ chính thức.');
-  $('proposals').innerHTML = proposals.map(p => `<div class="record"><h3>${escape(p.stableKey)} <span class="tag">${escape(p.status)}</span></h3><p>${escape(p.body)}</p><span class="meta">${escape(p.kind)} · ${p.citations.length} trích dẫn</span>${p.status === 'proposed' ? `<div class="row-actions"><button class="button approve" data-review="${escape(p.proposalId)}" data-accepted="true">Duyệt làm chính thức</button><button class="button" data-review="${escape(p.proposalId)}" data-accepted="false">Từ chối</button></div>` : ''}</div>`).join('') || empty('Chưa có đề xuất. Tìm một nguồn và chọn “Đề xuất bộ nhớ”.');
+  const memoryName = kind => ({ constraint: 'Ràng buộc', decision: 'Quyết định', fact: 'Thông tin' })[kind] ?? 'Bộ nhớ';
+  $('canonical').innerHTML = canonical.map(record => `<div class="record"><h3>${memoryName(record.kind)} <span class="tag success">Phiên bản ${record.version}</span></h3><p>${escape(record.body)}</p><span class="meta">Bạn đã duyệt · ${record.citations.length} trích dẫn${record.citations.some(c => sources.find(s => s.sourceId === c.sourceId)?.revision !== c.revision) ? ' · Nguồn đã có bản mới, cần đối chiếu' : ''}</span>${technicalDetails({ stableKey: record.stableKey, citations: record.citations })}</div>`).join('') || empty('Chưa có bộ nhớ chính thức.');
+  $('proposals').innerHTML = proposals.map(p => `<div class="record"><h3>${memoryName(p.kind)} <span class="tag">${escape(({ proposed: 'Chờ bạn duyệt', accepted: 'Đã duyệt', rejected: 'Đã từ chối' })[p.status] ?? p.status)}</span></h3><p>${escape(p.body)}</p><span class="meta">${p.citations.length} trích dẫn</span>${p.status === 'proposed' ? `<div class="row-actions"><button class="button approve" data-review="${escape(p.proposalId)}" data-accepted="true">Duyệt làm chính thức</button><button class="button" data-review="${escape(p.proposalId)}" data-accepted="false">Từ chối</button></div>` : ''}${technicalDetails({ proposalId: p.proposalId, stableKey: p.stableKey, citations: p.citations })}</div>`).join('') || empty('Chưa có đề xuất. Tìm một nguồn và chọn “Đề xuất bộ nhớ”.');
   document.querySelectorAll('[data-review]').forEach(button => button.onclick = async () => {
     const p = proposals.find(item => item.proposalId === button.dataset.review);
     button.disabled = true;
@@ -126,7 +134,7 @@ function renderRun(run) {
   $('pipeline').innerHTML = stages.map(([n, name, text, done], i) => `<div class="stage ${done ? 'done' : ''} ${i > 2 && !run?.delivery ? 'future' : ''} ${i === 2 && run?.state === 'awaiting_approval' ? 'wait' : ''}"><small>${n} / ${done ? 'RECORDED' : 'PENDING'}</small><b>${name}</b><span>${escape(text)}</span></div>`).join('');
   $('runActions').replaceChildren(); $('packet').replaceChildren(); $('invocations').replaceChildren();
   if (!run) { $('selectedRun').innerHTML = empty('Tạo một yêu cầu để khởi tạo spec và packet bàn giao.'); return; }
-  $('selectedRun').innerHTML = `<h3 class="run-objective">${escape(run.objective)}</h3><div class="meta">${escape(run.runId)}<br>Owner bước hiện tại: ${escape(run.currentOwner)} · Checkpoint #${run.lastSequence}${run.resumeState ? `<br>Khi tiếp tục: ${escape(labels[run.resumeState] ?? run.resumeState)}` : ''}</div>`;
+  $('selectedRun').innerHTML = `<h3 class="run-objective">${escape(run.objective)}</h3><div class="meta">Đang phụ trách: ${escape(agentName(state.agents, run.currentOwner))}${run.resumeState ? `<br>Khi tiếp tục: ${escape(labels[run.resumeState] ?? run.resumeState)}` : ''}</div>${technicalDetails({ runId: run.runId, checkpoint: run.lastSequence })}`;
   const controls = [];
   if (run.state === 'awaiting_handoff') controls.push(['ack', 'ACK bàn giao cho Leader', 'primary']);
   if (run.state === 'awaiting_approval') controls.push(['approve', 'Duyệt kế hoạch', 'approve'], ['reject', 'Yêu cầu sửa lại', '']);
@@ -156,38 +164,41 @@ function renderRun(run) {
   }
   for (const job of run.invocations ?? []) {
     const card = document.createElement('div'); card.className = 'record';
-    card.innerHTML = `<h3>${escape(job.roleId.toUpperCase())} · ${escape(job.model.name)} <span class="tag">${escape(labels[job.status] ?? job.status)}</span></h3><p class="meta">Lần gọi ${job.attempts}/2 · Token input ${job.usage?.inputTokens ?? 'chưa có số liệu'} · output ${job.usage?.outputTokens ?? 'chưa có số liệu'}</p>${job.output ? `<p>${escape(job.output.summary)}</p><ul>${job.output.deliverables.map(item => `<li>${escape(item)}</li>`).join('')}</ul>${job.output.questions.length ? `<p class="helper">Câu hỏi: ${escape(job.output.questions.join(' · '))}</p>` : ''}` : ''}<p class="hash">Input ${escape(job.inputSha256)}${job.outputSha256 ? `<br>Output ${escape(job.outputSha256)}` : ''}</p>`;
+    card.innerHTML = `<h3>${escape(job.roleId.toUpperCase())} · ${escape(job.model.name)} <span class="tag">${escape(labels[job.status] ?? job.status)}</span></h3><p class="meta">Lần gọi ${job.attempts}/2 · Token input ${job.usage?.inputTokens ?? 'chưa có số liệu'} · output ${job.usage?.outputTokens ?? 'chưa có số liệu'}</p>${job.output ? `<p>${escape(job.output.summary)}</p><ul>${job.output.deliverables.map(item => `<li>${escape(item)}</li>`).join('')}</ul>${job.output.questions.length ? `<p class="helper">Câu hỏi: ${escape(job.output.questions.join(' · '))}</p>` : ''}` : ''}`;
     const inspect = document.createElement('button'); inspect.className = 'button'; inspect.textContent = 'Xem context đã chụp';
     inspect.onclick = () => dialog('Input của invocation', `<p class="helper">Context của role được chụp tại lúc xếp hàng. Kết quả AI chưa phải sự thật đã kiểm chứng.</p><pre>${escape(JSON.stringify({ model: job.model, context: job.context, inputSha256: job.inputSha256 }, null, 2))}</pre>`);
     card.append(inspect); $('invocations').append(card);
   }
   if (run.handoff) {
-    $('packet').innerHTML = `<details class="packet"><summary>Handoff packet · ${escape(run.handoff.handoffId)}</summary><p class="hash">${escape(run.handoff.contentSha256)}</p><div class="meta">Snapshot: ${escape(run.handoff.contextSnapshotId)}<br>Ràng buộc đã chụp: ${run.spec?.canonicalRecords?.length ?? 0}</div><button class="button space-top" id="openContext">Kiểm tra context</button></details>`;
+    $('packet').innerHTML = `<details class="packet"><summary>Bàn giao cho Leader · ${run.spec?.canonicalRecords?.length ?? 0} ràng buộc đã chụp</summary><p class="hash">${escape(run.handoff.contentSha256)}</p><div class="meta">Snapshot: ${escape(run.handoff.contextSnapshotId)}</div><button class="button space-top" id="openContext">Kiểm tra context</button></details>`;
     click('openContext', async () => { const context = await api(`${base()}/context/${run.handoff.contextSnapshotId}`); dialog('Context bất biến của run', `<pre>${escape(JSON.stringify(context, null, 2))}</pre>`); });
   }
 }
-async function showSource(id, revision) {
+async function showSource(id, revision, citation = null) {
   const source = await api(`${base()}/sources/${id}/revisions/${revision}`);
-  dialog(`${source.title} · v${source.revision}`, `<p class="hash">${escape(source.contentSha256)}</p><p class="helper">Nguồn tham khảo chưa được xác minh. Vị trí trích dẫn dùng chỉ số UTF-16, bắt đầu từ 0.</p><pre>${escape(source.content)}</pre>`);
+  const pinned = citation && citation.contentSha256 === source.contentSha256 && citation.start >= 0 && citation.end <= source.content.length;
+  const content = pinned ? `${escape(source.content.slice(0, citation.start))}<mark>${escape(source.content.slice(citation.start, citation.end))}</mark>${escape(source.content.slice(citation.end))}` : escape(source.content);
+  dialog(`${source.title} · v${source.revision}`, `<p class="helper">${escape(source.kind)} · ${escape(source.classification)}${source.originalName ? ` · ${escape(source.originalName)}` : ''}. Nội dung nguồn chưa được xác minh.</p><pre>${content}</pre>${technicalDetails({ sourceId: source.sourceId, contentSha256: source.contentSha256, originalSha256: source.originalSha256, parserVersion: source.parserVersion }, 'Thông tin kiểm chứng')}`);
+  if (pinned) $('dialogBody').querySelector('mark')?.scrollIntoView({ block: 'center' });
 }
 async function reviseSource(id) {
   const metadata = state.sources.find(s => s.sourceId === id);
   const source = await api(`${base()}/sources/${id}/revisions/${metadata.revision}`);
-  dialog('Thêm phiên bản nguồn', `<form id="revisionForm"><p>Giữ nguyên bản cũ và tạo v${source.revision + 1}.</p><label for="revisionText">${escape(source.title)}</label><textarea id="revisionText" maxlength="65536" required>${escape(source.content)}</textarea><button class="button primary" type="submit">Lưu phiên bản mới</button></form>`);
-  bindForm('revisionForm', async () => { await post(`${base()}/sources`, { sourceId: id, title: source.title, content: $('revisionText').value, expectedRevision: source.revision }); $('detailDialog').close(); await refresh(); toast('Đã lưu phiên bản nguồn mới.'); });
+  dialog('Thêm phiên bản nguồn', `<form id="revisionForm"><p>Giữ nguyên bản cũ và tạo v${source.revision + 1}.</p><label for="revisionText">${escape(source.title)}</label><textarea id="revisionText" maxlength="262144" required>${escape(source.content)}</textarea><button class="button primary" type="submit">Lưu phiên bản mới</button></form>`);
+  bindForm('revisionForm', async () => { await post(`${base()}/sources`, { sourceId: id, title: source.title, content: $('revisionText').value, expectedRevision: source.revision, kind: source.kind, classification: source.classification, parserVersion: 'owner-edit-v1', originalName: source.originalName }); $('detailDialog').close(); await refresh(); toast('Đã lưu phiên bản nguồn mới.'); });
 }
 function editAgent(id) {
   const agent = state.agents.find(a => a.agentId === id);
-  dialog(`Vai trò · ${agent.name}`, `<form id="roleForm"><fieldset><legend>Chọn một hoặc nhiều vai trò</legend><div class="role-options">${roleChecks(agent.roleIds)}</div></fieldset><p class="helper">Tool grants vẫn là ${agent.toolGrants.length}. Thay đổi áp dụng cho run mới; run cũ giữ snapshot đã chụp.</p><button class="button primary space-top" type="submit">Lưu vai trò</button></form>`);
-  bindForm('roleForm', async () => { await api(`${base()}/agents/${id}/roles`, { method: 'PUT', body: JSON.stringify({ roleIds: chosenRoles($('roleForm')), expectedVersion: agent.version }) }); $('detailDialog').close(); await refresh(); });
+  dialog(`Vai trò · ${agent.name}`, `<form id="roleForm"><label for="agentDisplayName">Tên hiển thị</label><input id="agentDisplayName" value="${escape(agent.name)}" maxlength="120" required><fieldset><legend>Chọn một hoặc nhiều vai trò</legend><div class="role-options">${roleChecks(agent.roleIds)}</div></fieldset><p class="helper">Tool grants vẫn là ${agent.toolGrants.length}. Thay đổi áp dụng cho run mới; run cũ giữ snapshot đã chụp.</p><button class="button primary space-top" type="submit">Lưu tên & vai trò</button></form>`);
+  bindForm('roleForm', async () => { await api(`${base()}/agents/${id}/identity`, { method: 'PUT', body: JSON.stringify({ name: $('agentDisplayName').value, roleIds: chosenRoles($('roleForm')), expectedVersion: agent.version }) }); $('detailDialog').close(); await refresh(); });
 }
 function showAgent(id) {
   const item = state.office?.agents.find(a => a.agent.agentId === id); if (!item) return;
-  dialog(item.agent.name, `<p><span class="tag">${escape(labels[item.state] ?? item.state)}</span></p><p>${escape(item.summary)}</p><dl class="meta"><dt>Vai trò</dt><dd>${escape(item.agent.roleIds.join(' + '))}</dd><dt>Model</dt><dd>${escape(item.modelName ?? 'Chọn theo từng run')}</dd><dt>Role context</dt><dd>${escape(item.activeRoleId ?? 'Không có')}</dd><dt>Tool grants</dt><dd>${item.agent.toolGrants.length}</dd><dt>Run</dt><dd>${escape(item.runId ?? 'Không có')}</dd><dt>Checkpoint</dt><dd>#${item.sequence}</dd></dl>${item.runId ? '<button class="button" id="openAgentRun">Mở nhiệm vụ</button>' : ''}`);
+  dialog(item.agent.name, `<p><span class="tag">${escape(labels[item.state] ?? item.state)}</span></p><p>${item.runId ? escape(runName(state, item.runId)) : 'Chưa có công việc đang chạy.'}</p><dl class="meta"><dt>Vai trò</dt><dd>${escape(item.agent.roleIds.join(' + '))}</dd><dt>Model</dt><dd>${escape(item.modelName ?? 'Chọn theo từng công việc')}</dd><dt>Vai trò đang làm</dt><dd>${escape(item.activeRoleId ?? 'Không có')}</dd><dt>Quyền công cụ</dt><dd>${item.agent.toolGrants.length}</dd></dl>${item.runId ? '<button class="button" id="openAgentRun">Mở nhiệm vụ</button>' : ''}${technicalDetails(item)}`);
   if (item.runId) click('openAgentRun', () => { selectedRunId = item.runId; $('detailDialog').close(); showView('work'); render(); });
 }
 function propose(hit) {
-  dialog('Đề xuất bộ nhớ có nguồn', `<form id="proposalForm"><label for="memoryKey">Mã ổn định (dùng lại mã để tạo phiên bản kế tiếp)</label><input id="memoryKey" required maxlength="100" value="${uid('decision')}"><label for="memoryKind">Loại</label><select id="memoryKind"><option value="constraint">Ràng buộc</option><option value="decision">Quyết định</option><option value="fact">Thông tin</option></select><label for="memoryBody">Nội dung cần duyệt</label><textarea id="memoryBody" maxlength="4000" required>${escape(hit.excerpt)}</textarea><p class="helper">Nguồn ${escape(hit.title)}, v${hit.citation.revision}, [${hit.citation.start}, ${hit.citation.end}). Đề xuất chưa phải bộ nhớ chính thức.</p><button class="button primary space-top" type="submit">Lưu đề xuất</button></form>`);
+  dialog('Đề xuất bộ nhớ có nguồn', `<form id="proposalForm"><label for="memoryKind">Loại</label><select id="memoryKind"><option value="constraint">Ràng buộc</option><option value="decision">Quyết định</option><option value="fact">Thông tin</option></select><label for="memoryBody">Nội dung cần duyệt</label><textarea id="memoryBody" maxlength="4000" required>${escape(hit.excerpt)}</textarea><p class="helper">Nguồn ${escape(hit.title)}, phiên bản ${hit.citation.revision}. Đề xuất cần bạn duyệt trước khi trở thành bộ nhớ chính thức.</p><details class="technical-details"><summary>Cập nhật bộ nhớ đã có</summary><label for="memoryKey">Mã ổn định — dùng lại mã cũ để tạo phiên bản kế tiếp</label><input id="memoryKey" required maxlength="100" value="${uid('decision')}"></details><button class="button primary space-top" type="submit">Lưu đề xuất</button></form>`);
   const id = uid('proposal');
   bindForm('proposalForm', async () => { await post(`${base()}/memory/proposals`, { proposalId: id, stableKey: $('memoryKey').value, kind: $('memoryKind').value, body: $('memoryBody').value, citations: [hit.citation] }); $('detailDialog').close(); await refresh(); toast('Đề xuất đang chờ Owner duyệt.'); });
 }
@@ -228,8 +239,9 @@ async function selectCompany(id) {
 }
 $('companySelect').onchange = () => selectCompany($('companySelect').value).catch(error => toast(error.message));
 click('addCompany', () => {
-  dialog('Tạo công ty mới', '<form id="companyForm"><label for="companyName">Tên hiển thị</label><input id="companyName" maxlength="120" required placeholder="Game Development Studio"><label for="companyId">Mã công ty (chữ, số, dấu - hoặc _)</label><input id="companyId" maxlength="100" pattern="[A-Za-z0-9_\\-]+" required placeholder="game-studio"><button class="button primary" type="submit">Tạo công ty local</button><p class="helper">Mỗi công ty có agent và kho kiến thức riêng. Strict Local là mặc định.</p></form>');
-  bindForm('companyForm', async () => { const result = await post('/api/v1/companies', { companyId: $('companyId').value, name: $('companyName').value }); $('detailDialog').close(); await loadCompanies(); await selectCompany(result.companyId); toast('Đã tạo công ty mới.'); });
+  dialog('Tạo công ty mới', '<form id="companyForm"><label for="companyName">Tên hiển thị</label><input id="companyName" maxlength="120" required placeholder="Game Development Studio"><label for="companyId">Mã công ty (chữ, số, dấu - hoặc _)</label><input id="companyId" maxlength="100" pattern="[A-Za-z0-9_\\-]+" required placeholder="game-studio"><label class="check"><input id="companyUseStarter" type="checkbox" checked> Cài đội ngũ, skill và workflow gợi ý</label><details class="technical-details"><summary>Chọn model local cho đội ngũ (tùy chọn)</summary><button type="button" class="button" id="loadCompanyStarterModels">Đọc model đã cài</button><label for="companyStarterModel">Model dùng cho cấu hình mới</label><select id="companyStarterModel"><option value="">Chọn sau · bạn cung cấp output</option></select></details><button class="button primary space-top" type="submit">Tạo công ty local</button><p class="helper">Mỗi công ty có agent và kho kiến thức riêng. Strict Local là mặc định.</p></form>');
+  click('loadCompanyStarterModels', async () => { const models = await api('/api/v1/providers/local/models'); $('companyStarterModel').innerHTML = '<option value="">Chọn sau · bạn cung cấp output</option>' + models.map(model => `<option value="${escape(model.name)}">${escape(model.name)}</option>`).join(''); });
+  bindForm('companyForm', async () => { const result = await post('/api/v1/companies', { companyId: $('companyId').value, name: $('companyName').value }); if ($('companyUseStarter').checked) await post(`/api/v1/companies/${result.companyId}/starter-pack`, { packId: 'software-team', modelId: $('companyStarterModel').value || null }, uid('starter')); $('detailDialog').close(); await loadCompanies(); await selectCompany(result.companyId); toast('Đã tạo công ty mới.'); });
 });
 bindForm('createRun', async () => {
   const mode = $('executionMode').value;
@@ -238,16 +250,28 @@ bindForm('createRun', async () => {
   selectedRunId = run.runId; createKey = uid('create'); $('objective').value = ''; await refresh(); toast(run.executionMode === 'local_model' ? 'Đã xếp hàng AI local với context đã chụp.' : 'Spec mẫu và handoff packet đã được lưu.');
 });
 for (const id of ['objective', 'sources', 'baAgent', 'leaderAgent', 'executionMode', 'localModel', 'modelSources']) $(id).addEventListener('input', () => createKey = uid('create'));
-bindForm('importSource', async () => { await post(`${base()}/sources`, { sourceId, title: $('sourceTitle').value, content: $('sourceText').value, expectedRevision: 0 }); sourceId = uid('source'); $('sourceTitle').value = ''; $('sourceText').value = ''; await refresh(); toast('Đã lưu nguồn. Nội dung chưa được duyệt làm bộ nhớ.'); });
+bindForm('importSource', async () => {
+  const file = $('sourceImportFile').files[0], classification = $('sourceClassification').value;
+  if (file) {
+    const form = new FormData(); form.set('sourceId', sourceId); form.set('title', $('sourceTitle').value); form.set('expectedRevision', '0'); form.set('classification', classification); form.set('file', file);
+    await api(`${base()}/sources/file`, { method: 'POST', body: form });
+  } else {
+    if (!$('sourceText').value.trim()) throw new Error('Chọn một file hoặc nhập nội dung văn bản.');
+    await post(`${base()}/sources`, { sourceId, title: $('sourceTitle').value, content: $('sourceText').value, expectedRevision: 0, kind: 'text', classification, parserVersion: 'owner-text-v1' });
+  }
+  sourceId = uid('source'); $('sourceTitle').value = ''; $('sourceText').value = ''; $('sourceImportFile').value = ''; await refresh(); toast('Đã parse và lưu nguồn. Nội dung chưa được duyệt làm bộ nhớ.');
+});
 bindForm('searchForm', async () => {
   const company = companyId, result = await api(`${base()}/knowledge/search?q=${encodeURIComponent($('searchQuery').value)}`);
   if (company !== companyId) return;
-  $('searchResults').innerHTML = result.hits.map((hit, i) => `<div class="result"><h3>${escape(hit.title)} <span class="tag">v${hit.citation.revision}</span></h3><pre>${escape(hit.excerpt)}</pre><p class="meta">${escape(hit.citation.sourceId)} · UTF-16 [${hit.citation.start}, ${hit.citation.end})</p><button class="button" data-propose="${i}">Đề xuất bộ nhớ</button></div>`).join('') || empty('Không tìm thấy nguồn phù hợp.');
+  $('knowledgeIndexStatus').textContent = `${result.mode} · ${result.indexVersion} · ${result.warnings[0]}`;
+  $('searchResults').innerHTML = result.hits.map((hit, i) => `<div class="result"><h3>${escape(hit.title)} <span class="tag">v${hit.citation.revision}</span> <span class="tag">${escape(hit.classification)}</span></h3><pre>${escape(hit.excerpt)}</pre><p class="meta">${hit.canonicalStatus === 'accepted-support' ? 'Có trích dẫn trong bộ nhớ đã duyệt' : 'Nguồn tham khảo'} · Đoạn ${hit.citation.start}–${hit.citation.end}</p><button class="button" data-inspect-hit="${i}">Xem nguồn / highlight</button><button class="button" data-propose="${i}">Đề xuất bộ nhớ</button>${technicalDetails({ citation: hit.citation, score: hit.score, lexicalScore: hit.lexicalScore, vectorScore: hit.vectorScore, canonicalStatus: hit.canonicalStatus }, 'Điểm tìm kiếm & nguồn trích dẫn')}</div>`).join('') || empty('Không tìm thấy nguồn phù hợp.');
+  document.querySelectorAll('[data-inspect-hit]').forEach(button => button.onclick = () => { const citation = result.hits[Number(button.dataset.inspectHit)].citation; showSource(citation.sourceId, citation.revision, citation).catch(error => toast(error.message)); });
   document.querySelectorAll('[data-propose]').forEach(button => button.onclick = () => propose(result.hits[Number(button.dataset.propose)]));
 });
 bindForm('createAgent', async () => { await post(`${base()}/agents`, { agentId, name: $('agentName').value, roleIds: chosenRoles($('createAgent')) }); agentId = uid('agent'); $('agentName').value = ''; await refresh(); toast('Đã tạo agent. Chưa cấp quyền công cụ.'); });
 click('pauseVisual', () => { const paused = !scene.paused; scene.setPaused(paused); $('pauseVisual').textContent = paused ? 'Tiếp tục hoạt ảnh' : 'Dừng hoạt ảnh'; $('pauseVisual').setAttribute('aria-pressed', String(paused)); });
-$('boardOnly').onchange = () => { $('officeScene').hidden = $('boardOnly').checked; scene.setVisible(view === 'office' && !$('boardOnly').checked); };
+$('boardOnly').onchange = () => { $('officeScene').toggleAttribute('hidden', $('boardOnly').checked); scene.setVisible(view === 'office' && !$('boardOnly').checked); };
 document.addEventListener('keydown', e => { if (e.code === 'Space' && view === 'office' && e.target === document.body && !$('detailDialog').open) { e.preventDefault(); $('pauseVisual').click(); } });
 click('refresh', refresh);
 async function verifyStorage() {
@@ -270,7 +294,7 @@ bindForm('backupForm', async () => {
 });
 bindForm('validateBackup', async () => {
   const file = $('backupFile').files[0], passphrase = $('validatePassphrase').value; $('validatePassphrase').value = '';
-  if (file.size > 16 * 1024 * 1024) throw new Error('Bản sao lưu vượt giới hạn 16 MiB của milestone này.');
+  if (file.size > 128 * 1024 * 1024) throw new Error('Bản sao lưu vượt giới hạn 128 MiB.');
   const encoded = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result.split(',')[1]); reader.onerror = reject; reader.readAsDataURL(file); });
   const result = await post('/api/v1/backups/validate', { archiveBase64: encoded, passphrase });
   $('backupResult').innerHTML = `<span class="tag success">Giải mã và checksum hợp lệ · ${result.eventCount} events</span><p class="hash">${escape(result.digest)}</p>`;
@@ -279,7 +303,7 @@ async function start() {
   await api('/api/session'); roles = await api('/api/v1/roles');
   $('newAgentRoles').innerHTML = roleChecks(['ba']);
   $('roleCatalog').innerHTML = roles.map(role => `<article class="role-card"><h3>${escape(role.name)} <span class="tag">${escape(role.roleId)}</span></h3><p>Input: ${escape(role.inputSchema)}</p><p>Output: ${escape(role.outputSchema)}</p><p>Skills: ${escape(role.skillIds.join(', '))}</p><p>Không được: ${escape(role.forbiddenActions.join(', '))}</p></article>`).join('');
-  await loadCompanies(); await selectCompany(companies[0].companyId); showView('work');
+  await loadCompanies(); await selectCompany(companies[0].companyId); showView('company');
 }
 start().catch(error => { $('connection').textContent = 'Không kết nối được'; $('connection').className = 'pill disconnected'; toast(error.message); });
 
@@ -301,9 +325,9 @@ click('loadModels', async () => {
 $('sourceImportFile').addEventListener('change', async () => {
   const file = $('sourceImportFile').files[0]; if (!file) return;
   try {
-    if (file.size > 256 * 1024) throw new Error('File vượt giới hạn 256 KiB.');
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer());
-    if (text.length > 65536) throw new Error('Nội dung vượt giới hạn 65.536 ký tự.');
-    $('sourceTitle').value = file.name.slice(0, 160); $('sourceText').value = text;
+    if (file.size > 8 * 1024 * 1024) throw new Error('File vượt giới hạn 8 MiB.');
+    $('sourceTitle').value = file.name.replace(/\.[^.]+$/, '').slice(0, 160);
+    if (/\.(txt|md|markdown|json|csv|tsv|yaml|yml)$/i.test(file.name) && file.size <= 262144) $('sourceText').value = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer());
   } catch (error) { $('sourceImportFile').value = ''; toast(error.message); }
 });
+$('sourceText').addEventListener('input', () => { $('sourceImportFile').value = ''; });

@@ -1,6 +1,6 @@
 # Rà soát triển khai AI Company OS 2.2
 
-Bản hiện tại là [1.0 Local Static Delivery](RELEASE_1.0.md). Phần bên dưới giữ lại như báo cáo lịch sử 0.2; không dùng backlog này để suy ra trạng thái hiện tại.
+Bản hiện tại là [2.2 Company OS](RELEASE_2.2.md). Phần bên dưới giữ lại như báo cáo lịch sử 0.2; không dùng backlog này để suy ra trạng thái hiện tại.
 
 Ngày kiểm tra: **02/11/2026**. Baseline: `a803439`, “Initial local-first AI Company OS runtime”. Tài liệu này ghi nhận mốc **0.2 durable workspace**, chưa phải nghiệm thu toàn bộ sản phẩm production.
 

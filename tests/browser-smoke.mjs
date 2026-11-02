@@ -196,13 +196,13 @@ async function browserChecks() {
   page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
   context.on('request', request => { if (/^https?:/.test(request.url()) && new URL(request.url()).origin !== base) outbound.push(request.url()); });
   await page.goto(base); await page.waitForFunction(() => document.getElementById('connection').textContent.includes('Live'));
-  await page.selectOption('#companySelect', 'software-studio');
+  await page.selectOption('#companySelect', 'software-studio'); await page.click('[data-view=work]');
   await page.fill('#objective', 'Kiểm tra giao việc và checkpoint');
   await page.locator('#createRun button[type=submit]').click();
   await page.locator('#run-pause').waitFor(); await page.locator('#run-pause').click();
   await page.waitForFunction(() => document.getElementById('runState').textContent === 'Đã tạm dừng');
   await page.reload(); await page.waitForFunction(() => document.getElementById('connection').textContent.includes('Live'));
-  await page.selectOption('#companySelect', 'software-studio');
+  await page.selectOption('#companySelect', 'software-studio'); await page.click('[data-view=work]');
   await page.locator('#run-resume').waitFor(); await page.locator('#run-resume').click();
   await page.locator('#run-ack').waitFor(); await page.locator('#run-ack').click();
   await page.locator('#run-approve').waitFor(); await page.locator('#run-approve').click();
@@ -215,7 +215,7 @@ async function browserChecks() {
   await page.waitForFunction(() => document.getElementById('runState').textContent === 'Chờ file sản phẩm');
   await page.click('#submit-delivery'); await page.locator('#artifactForm button[type=submit]').click();
   await page.waitForFunction(() => document.getElementById('runState').textContent === 'Chờ duyệt bàn giao');
-  check(await page.locator('#deliveryBody details').count() === 3, 'Manual delivery must run all static checks and display their receipts.');
+  check(await page.locator('#deliveryBody details.packet').count() === 3, 'Manual delivery must run all static checks and display their receipts.');
   await page.click('#preview-delivery');
   await page.frameLocator('#deliveryPreview').locator('h1').waitFor();
   check((await page.frameLocator('#deliveryPreview').locator('h1').innerText()).includes('Tài liệu dự án') && await page.locator('#deliveryPreview').getAttribute('sandbox') === '', 'Isolated preview must render only the static artifact.');
@@ -240,6 +240,8 @@ async function browserChecks() {
   await page.fill('#searchQuery', 'SQLite'); await page.locator('#searchForm button').click();
   await page.locator('[data-propose]').waitFor();
   check(await page.locator('#searchResults img').count() === 0 && await page.evaluate(() => window.xss) === undefined, 'Imported HTML must render as plain text.');
+  await page.locator('[data-inspect-hit]').first().click(); await page.locator('#dialogBody mark').waitFor();
+  check((await page.locator('#dialogBody mark').innerText()).includes('SQLite'), 'Source inspection must highlight the exact retrieved UTF-16 span without executing source markup.'); await page.click('#closeDialog');
   await page.click('[data-propose]'); await page.fill('#memoryBody', 'Chỉ dùng SQLite local; không tự push.');
   await page.locator('#proposalForm button[type=submit]').click();
   await page.locator('[data-review][data-accepted=true]').waitFor(); await page.click('[data-review][data-accepted=true]');
@@ -247,12 +249,12 @@ async function browserChecks() {
   await page.click('[data-view=organization]'); await page.fill('#agentName', 'BA + Leader fixture');
   await page.locator('#newAgentRoles input[value=leader]').check(); await page.locator('#createAgent button[type=submit]').click();
   await page.waitForFunction(() => document.getElementById('agentRegistry').textContent.includes('BA + Leader fixture'));
-  await page.click('[data-view=office]'); await page.locator('.office-agent').first().waitFor();
+  await page.click('[data-view=office]'); await page.locator('#officeScene .office-agent').first().waitFor();
   const before = await (await context.request.get(`${base}/api/v1/companies/software-studio/events`)).json();
   await page.click('#pauseVisual');
   const after = await (await context.request.get(`${base}/api/v1/companies/software-studio/events`)).json();
   check(before.length === after.length, 'Pause Visual must not issue a workflow command.');
-  check(await page.locator('.office-agent').count() === 8, 'Office must project all registered agents.');
+  check(await page.locator('#officeScene .office-agent').count() === 8, 'Office must project all registered agents.');
   await page.evaluate(() => scrollTo(0, 0));
   await page.screenshot({ path: join(output, 'desktop-office.png'), fullPage: true });
   await page.click('[data-view=storage]'); await page.click('#verifyStorage');
@@ -270,7 +272,7 @@ async function browserChecks() {
   await page.waitForFunction(() => document.getElementById('companySelect').value === 'ui-empty' && document.getElementById('canonical').textContent.includes('Chưa có bộ nhớ'));
   await page.click('[data-view=knowledge]');
   check(!(await page.locator('#sourceList').innerText()).includes('Local policy'), 'Switching company must clear prior company data.');
-  await page.selectOption('#companySelect', 'software-studio'); await page.click('[data-view=work]');
+  await page.selectOption('#companySelect', 'software-studio'); await page.click('[data-view=work]'); await page.click('[data-view=work]');
   await page.emulateMedia({ reducedMotion: 'reduce' }); await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => scrollTo(0, 0));
   await page.screenshot({ path: join(output, 'mobile-workspace.png'), fullPage: true });
@@ -297,7 +299,7 @@ async function browserChecks() {
   await page.fill('#deliveryCriteria', 'index.html | Keep data local.');
   await page.locator('#prepareDeliveryForm button[type=submit]').click();
   await page.waitForFunction(() => document.getElementById('runState').textContent === 'Chờ duyệt bàn giao');
-  check(await page.locator('#invocations .record').count() === 3 && await page.locator('#deliveryBody details').count() === 3, 'UI must execute and expose the full local AI Dev/check/report pipeline.');
+  check(await page.locator('#invocations .record').count() === 3 && await page.locator('#deliveryBody details.packet').count() === 3, 'UI must execute and expose the full local AI Dev/check/report pipeline.');
   await page.click('#review-delivery'); await page.check('#deliveryAcceptance'); await page.check('#deliveryRights');
   await page.locator('#deliveryReviewForm button[type=submit]').click();
   await page.waitForFunction(() => document.getElementById('runState').textContent === 'Đã bàn giao');

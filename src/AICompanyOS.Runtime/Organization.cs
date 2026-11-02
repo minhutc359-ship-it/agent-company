@@ -7,6 +7,7 @@ public sealed record CreateCompanyRequest(string CompanyId, string Name);
 public sealed record Agent(string AgentId, string Name, string[] RoleIds, int Version, string[] ToolGrants, string? ModelRoute = null);
 public sealed record CreateAgentRequest(string AgentId, string Name, string[] RoleIds);
 public sealed record AssignRolesRequest(string[] RoleIds, int ExpectedVersion);
+public sealed record AgentIdentityRequest(string Name, string[] RoleIds, int ExpectedVersion);
 public sealed record RoleContract(string RoleId, string Version, string Name, string InputSchema, string OutputSchema, string[] SkillIds, string[] ForbiddenActions);
 public sealed record SkillContract(string SkillId, string Version, string Name, string[] RequestedTools);
 
@@ -52,9 +53,20 @@ public sealed partial class FileEventStore
     private static Company[] CompaniesFrom(IEnumerable<DomainEvent> events) => events.Where(e => e.Type == "company.created")
         .Select(e => e.Data.GetProperty("company").Deserialize<Company>(JsonOptions)!).OrderBy(c => c.Name).ToArray();
 
-    public async Task<Company[]> ListCompaniesAsync(CancellationToken ct) => CompaniesFrom(await ReadEventsAsync(CatalogCompany, 0, ct));
+    public async Task<Company[]> ListCompaniesAsync(CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            var companies = CompaniesFrom(await ReadEventsUnsafeAsync(CatalogCompany, 0, ct));
+            var result = new List<Company>();
+            foreach (var company in companies) result.Add(company with { PrivacyMode = ProfileFrom(await ReadEventsUnsafeAsync(company.CompanyId, 0, ct)).PrivacyMode });
+            return result.ToArray();
+        }
+        finally { _gate.Release(); }
+    }
     public async Task<bool> CompanyExistsAsync(string id, CancellationToken ct) => id != CatalogCompany &&
-        (await ListCompaniesAsync(ct)).Any(c => c.CompanyId == id);
+        CompaniesFrom(await ReadEventsAsync(CatalogCompany, 0, ct)).Any(c => c.CompanyId == id);
 
     public async Task<Company> CreateCompanyAsync(CreateCompanyRequest request, CancellationToken ct)
     {
@@ -128,6 +140,21 @@ public sealed partial class FileEventStore
             var updated = agent with { RoleIds = request.RoleIds, Version = agent.Version + 1 };
             await AppendUnsafeAsync(companyId, agentId, [DomainEvent.Create("agent.roles.changed", updated)], events, ct);
             return updated;
+        }
+        finally { _gate.Release(); }
+    }
+    public async Task<Agent> UpdateAgentIdentityAsync(string companyId, string agentId, AgentIdentityRequest request, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Length > 120 || SourceSafety.ContainsKnownSecret(request.Name) || !BuiltInCatalog.ValidRoles(request.RoleIds))
+            throw new ArgumentException("Choose a bounded name and known roles without duplicates.");
+        await _gate.WaitAsync(ct);
+        try
+        {
+            var events = await ReadEventsUnsafeAsync(companyId, 0, ct);
+            var agent = AgentsFrom(companyId, await ReadEventsUnsafeAsync(CatalogCompany, 0, ct), events).FirstOrDefault(a => a.AgentId == agentId) ?? throw new KeyNotFoundException("Agent not found.");
+            if (agent.Version != request.ExpectedVersion) throw new WorkspaceConflictException("Agent changed; reload its version.");
+            var updated = agent with { Name = request.Name.Trim(), RoleIds = request.RoleIds, Version = agent.Version + 1 };
+            await AppendUnsafeAsync(companyId, agentId, [DomainEvent.Create("agent.roles.changed", updated)], events, ct); return updated;
         }
         finally { _gate.Release(); }
     }

@@ -1,14 +1,16 @@
-using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace AICompanyOS.Runtime;
 
-public sealed record SourceRevision(string SourceId, int Revision, string Title, string Content, string ContentSha256, DateTimeOffset ImportedAt);
-public sealed record ImportSourceRequest(string SourceId, string Title, string Content, int ExpectedRevision = 0);
+public sealed record SourceRevision(string SourceId, int Revision, string Title, string Content, string ContentSha256, DateTimeOffset ImportedAt,
+    string Kind = "text", string Classification = "internal", string ParserVersion = "plain-v1", string? OriginalName = null, string? OriginalSha256 = null);
+public sealed record ImportSourceRequest(string SourceId, string Title, string Content, int ExpectedRevision = 0,
+    string Kind = "text", string Classification = "internal", string ParserVersion = "plain-v1", string? OriginalName = null, string? OriginalSha256 = null);
 public sealed record Citation(string SourceId, int Revision, int Start, int End, string ContentSha256);
-public sealed record SearchHit(string Title, string Excerpt, Citation Citation, int MatchedTerms);
-public sealed record SearchResult(string Mode, SearchHit[] Hits, string[] Warnings);
+public sealed record SearchHit(string Title, string Excerpt, Citation Citation, int MatchedTerms, double Score = 0, double LexicalScore = 0,
+    double VectorScore = 0, string CanonicalStatus = "source-only", string Classification = "internal");
+public sealed record SearchResult(string Mode, SearchHit[] Hits, string[] Warnings, string IndexVersion = "legacy", string? QueryId = null);
 public sealed record MemoryProposalRequest(string ProposalId, string StableKey, string Kind, string Body, Citation[] Citations);
 public sealed record MemoryProposal(string ProposalId, string StableKey, string Kind, string Body, Citation[] Citations, string Status);
 public sealed record MemoryReviewRequest(bool Accepted, int ExpectedCanonicalVersion);
@@ -59,8 +61,12 @@ public sealed partial class FileEventStore
     public async Task<SourceRevision> ImportSourceAsync(string companyId, ImportSourceRequest request, CancellationToken ct)
     {
         if (!Identifiers.IsValid(request.SourceId) || string.IsNullOrWhiteSpace(request.Title) || request.Title.Length > 160 ||
-            string.IsNullOrWhiteSpace(request.Content) || request.Content.Length > 65536 || request.ExpectedRevision < 0)
-            throw new ArgumentException("A source needs an ID, title and at most 65,536 UTF-16 characters.");
+            string.IsNullOrWhiteSpace(request.Content) || request.Content.Length > DocumentIngestion.MaxTextCharacters || request.ExpectedRevision < 0 ||
+            request.Kind is not { Length: > 0 and <= 32 } || request.ParserVersion is not { Length: > 0 and <= 64 } ||
+            request.Classification is not ("public" or "internal" or "confidential" or "restricted") || request.OriginalName is { Length: > 180 } ||
+            SourceSafety.ContainsKnownSecret(request.Kind) || SourceSafety.ContainsKnownSecret(request.ParserVersion) || SourceSafety.ContainsKnownSecret(request.OriginalName ?? "") ||
+            request.OriginalSha256 is not null && (request.OriginalSha256.Length != 71 || !request.OriginalSha256.StartsWith("sha256:", StringComparison.Ordinal) || !request.OriginalSha256[7..].All(char.IsAsciiHexDigit)))
+            throw new ArgumentException("A source needs bounded metadata, a privacy label and at most 262,144 UTF-16 characters.");
         if (request.Title.StartsWith(".env", StringComparison.OrdinalIgnoreCase) || SourceSafety.ContainsKnownSecret(request.Title) || SourceSafety.ContainsKnownSecret(request.Content))
             throw new ArgumentException("Possible credentials detected. Remove secrets before importing.");
         await _gate.WaitAsync(ct);
@@ -69,9 +75,11 @@ public sealed partial class FileEventStore
             var events = await ReadEventsUnsafeAsync(companyId, 0, ct);
             var current = SourcesFrom(events).LastOrDefault(s => s.SourceId == request.SourceId);
             var hash = RuntimeJson.TextHash(request.Content);
-            if (current is not null && current.ContentSha256 == hash && current.Title == request.Title.Trim()) return current;
+            if (current is not null && current.ContentSha256 == hash && current.Title == request.Title.Trim() && current.Kind == request.Kind && current.Classification == request.Classification && current.ParserVersion == request.ParserVersion &&
+                current.OriginalName == request.OriginalName && current.OriginalSha256 == request.OriginalSha256) return current;
             if ((current?.Revision ?? 0) != request.ExpectedRevision) throw new WorkspaceConflictException("Source revision changed; reload before importing.");
-            var source = new SourceRevision(request.SourceId, request.ExpectedRevision + 1, request.Title.Trim(), request.Content, hash, DateTimeOffset.UtcNow);
+            var source = new SourceRevision(request.SourceId, request.ExpectedRevision + 1, request.Title.Trim(), request.Content, hash, DateTimeOffset.UtcNow,
+                request.Kind, request.Classification, request.ParserVersion, request.OriginalName, request.OriginalSha256);
             await AppendUnsafeAsync(companyId, request.SourceId, [DomainEvent.Create("source.imported", source)], events, ct);
             return source;
         }
@@ -87,23 +95,11 @@ public sealed partial class FileEventStore
     public async Task<SearchResult> SearchAsync(string companyId, string query, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(query) || query.Length > 300) throw new ArgumentException("Enter a search query up to 300 characters.");
-        var terms = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct().ToArray();
-        var compare = CultureInfo.InvariantCulture.CompareInfo;
-        const CompareOptions options = CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace;
-        var hits = new List<SearchHit>();
-        foreach (var source in await ListSourcesAsync(companyId, ct))
-        {
-            var offsets = terms.Select(term => compare.IndexOf(source.Content, term, options)).Where(i => i >= 0).ToArray();
-            if (offsets.Length == 0) continue;
-            var start = Math.Max(0, offsets.Min() - 80);
-            if (start > 0 && char.IsLowSurrogate(source.Content[start])) start--;
-            var end = Math.Min(source.Content.Length, start + 400);
-            if (end < source.Content.Length && char.IsLowSurrogate(source.Content[end])) end--;
-            hits.Add(new(source.Title, source.Content[start..end], new(source.SourceId, source.Revision, start, end, source.ContentSha256), offsets.Length));
-        }
-        return new("lexical-only", hits.OrderByDescending(h => h.MatchedTerms).ThenBy(h => h.Title).Take(10).ToArray(),
-            ["No semantic index is configured. Search results are untrusted source text, not accepted facts."]);
+        var events = await ReadEventsAsync(companyId, 0, ct);
+        return KnowledgeIndex.Search(SourcesFrom(events).GroupBy(s => s.SourceId).Select(g => g.Last()).ToArray(), CanonicalFrom(events), query);
     }
+
+    public async Task<KnowledgeIndexStatus> KnowledgeIndexStatusAsync(string companyId, CancellationToken ct) => KnowledgeIndex.Status(await ListSourcesAsync(companyId, ct));
 
     public async Task<MemoryProposal[]> ListProposalsAsync(string companyId, CancellationToken ct) => ProposalsFrom(await ReadEventsAsync(companyId, 0, ct));
     public async Task<MemoryRecord[]> ListCanonicalAsync(string companyId, CancellationToken ct) => CanonicalFrom(await ReadEventsAsync(companyId, 0, ct));
