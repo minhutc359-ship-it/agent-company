@@ -1,0 +1,60 @@
+name: Verify local workspace
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  runtime:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore tests/AICompanyOS.Runtime.Tests --locked-mode
+      - run: dotnet build tests/AICompanyOS.Runtime.Tests -c Release --no-restore
+      - run: dotnet run --project tests/AICompanyOS.Runtime.Tests -c Release --no-build
+      - run: dotnet publish src/AICompanyOS.Runtime -c Release --no-restore --self-contained false -o "${{ runner.temp }}/aicos-runtime"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ai-company-os-1.0-${{ runner.os }}
+          path: ${{ runner.temp }}/aicos-runtime
+          if-no-files-found: error
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: dotnet restore src/AICompanyOS.Runtime --locked-mode
+      - run: dotnet build src/AICompanyOS.Runtime -c Release --no-restore
+      - run: npm ci
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+        env:
+          AICOS_QA_OUTPUT_DIR: ${{ runner.temp }}/aicos-qa
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-evidence
+          path: |
+            ${{ runner.temp }}/aicos-qa/*.png
+            ${{ runner.temp }}/aicos-qa/*.json
+          if-no-files-found: ignore

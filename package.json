@@ -1,0 +1,12 @@
+{
+  "name": "ai-company-os-quality-checks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/office-navigation.test.mjs",
+    "test:browser": "node tests/browser-smoke.mjs",
+    "test:api": "node tests/browser-smoke.mjs --api-only"
+  },
+  "engines": { "node": ">=20" },
+  "devDependencies": { "playwright": "1.62.1" }
+}
