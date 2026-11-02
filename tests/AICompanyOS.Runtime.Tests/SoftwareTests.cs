@@ -168,10 +168,29 @@ public static class SoftwareTests
                 Check(mixedOffice.Agents.Any(a => a.RunId == legacy.RunId && a.State == "handoff_pending"), "A newer active static workflow remains visible after software runs exist.");
                 await store.CreateCompanyAsync(new("other", "Other company"), Ct);
                 Check(await store.GetSoftwareRunAsync("other", runId, Ct) is null, "Software state is company-scoped.");
+                await store.ConfigureAgentAsync(Company, "ba-agent", new(0, "Analysis", Model.Name, []), Ct);
+                await store.ConfigureAgentAsync(Company, "leader-agent", new(0, "Delivery", Model.Name, []), Ct);
                 var question = await store.AddInteractionAsync(Company, new("lobby", "consult", "owner", ["ba-agent"], "Review local constraints.", [], []), "message", Ct);
                 Check(question.Origin == "owner_authored", "Owner notes must be labelled distinctly from model replies.");
                 var replay = await store.AddInteractionAsync(Company, new("lobby", "consult", "owner", ["ba-agent"], "Review local constraints.", [], []), "message", Ct);
                 Check(question.InteractionId == replay.InteractionId, "Public interaction retry must not duplicate a message.");
+                var branch = await store.CreateConversationBranchAsync(Company, new("alternative", "lobby", "Alternative review", "main", question.InteractionId), "branch", Ct);
+                var implicitFork = await store.CreateConversationBranchAsync(Company, new("full-snapshot", "lobby", "Current parent snapshot"), "branch-snapshot", Ct);
+                var branchMessage = await store.AddInteractionAsync(Company, new("lobby", "inform", "owner", ["leader-agent"], "Evaluate the alternative.", [], [], question.InteractionId, branch.BranchId), "branch-message", Ct);
+                Check(branchMessage.BranchId == branch.BranchId && (await store.WorkbenchAsync(Company, Ct)).Branches.Any(b => b.BranchId == branch.BranchId), "Conversation forks must persist their parent/message boundary and route new messages to the selected branch.");
+                var laterMain = await store.AddInteractionAsync(Company, new("lobby", "inform", "owner", ["leader-agent"], "Main branch later message.", [], []), "main-later", Ct);
+                Check(implicitFork.ParentHistoryLength == 1 && implicitFork.ForkMessageId == question.InteractionId, "An unspecified fork message must pin current parent history instead of following future messages.");
+                await Throws<ArgumentException>(() => store.AddInteractionAsync(Company, new("lobby", "inform", "owner", ["leader-agent"], "Invalid future-parent reply.", [], [], laterMain.InteractionId, implicitFork.BranchId), "future-parent", Ct), "Implicit full-history forks must not inherit future parent messages.");
+                await Throws<ArgumentException>(() => store.AddInteractionAsync(Company, new("lobby", "inform", "owner", ["leader-agent"], "Invalid cross-branch reply.", [], [], laterMain.InteractionId, branch.BranchId), "cross-branch", Ct), "A branch cannot reply to a parent message created after its immutable fork point.");
+                var comparisonQuestion = await store.AddInteractionAsync(Company, new("lobby", "question", "owner", ["ba-agent", "leader-agent"], "Compare two bounded delivery approaches.", [], [], BranchId: branch.BranchId), "comparison-question", Ct);
+                var comparison = await store.QueueComparisonAsync(Company, comparisonQuestion.InteractionId, new([new("ba-agent", "ba"), new("leader-agent", "leader")]), [Model], "comparison", Ct);
+                var comparedJobs = (await store.ListConsultationsAsync(Company, Ct)).Where(j => j.ComparisonId == comparison.ComparisonId).ToArray();
+                Check(comparedJobs.Length == 2 && comparedJobs.Select(j => j.ContextSnapshotSha256).Distinct().Single() == comparison.ContextSnapshotSha256 && comparedJobs.Select(j => j.InputSha256).Distinct().Count() == 2,
+                    "Model comparison must pin one immutable public context snapshot while preserving distinct role/model route payloads.");
+                Check((await store.QueueComparisonAsync(Company, comparisonQuestion.InteractionId, new([new("ba-agent", "ba"), new("leader-agent", "leader")]), [Model], "comparison", Ct)).ComparisonId == comparison.ComparisonId,
+                    "Comparison commands must replay without duplicating local model jobs.");
+                var inheritedReply = await store.QueueConsultationAsync(Company, question.InteractionId, new("ba-agent", "ba", BranchId: branch.BranchId), [Model], "inherited-question", Ct);
+                Check(inheritedReply.BranchId == branch.BranchId && !inheritedReply.Input.Contains("Main branch later message"), "Replying to an inherited question must stay in the selected child branch with its pinned history.");
                 await Throws<ArgumentException>(() => store.AddInteractionAsync(Company, new("lobby", "consult", "owner", ["foreign-agent"], "x", [], []), "foreign", Ct), "Foreign participants cannot leak context across companies.");
                 var meeting = await store.CreateMeetingAsync(Company, new("lobby", "Discuss accepted constraints", ["ba-agent", "leader-agent"]), "meeting", Ct);
                 meeting = await store.ChangeMeetingAsync(Company, meeting.MeetingId, true, new(meeting.Version, "", [], []), Ct);

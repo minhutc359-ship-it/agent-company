@@ -52,9 +52,20 @@ public sealed partial class FileEventStore
     private static Company[] CompaniesFrom(IEnumerable<DomainEvent> events) => events.Where(e => e.Type == "company.created")
         .Select(e => e.Data.GetProperty("company").Deserialize<Company>(JsonOptions)!).OrderBy(c => c.Name).ToArray();
 
-    public async Task<Company[]> ListCompaniesAsync(CancellationToken ct) => CompaniesFrom(await ReadEventsAsync(CatalogCompany, 0, ct));
+    public async Task<Company[]> ListCompaniesAsync(CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            var companies = CompaniesFrom(await ReadEventsUnsafeAsync(CatalogCompany, 0, ct));
+            var result = new List<Company>();
+            foreach (var company in companies) result.Add(company with { PrivacyMode = ProfileFrom(await ReadEventsUnsafeAsync(company.CompanyId, 0, ct)).PrivacyMode });
+            return result.ToArray();
+        }
+        finally { _gate.Release(); }
+    }
     public async Task<bool> CompanyExistsAsync(string id, CancellationToken ct) => id != CatalogCompany &&
-        (await ListCompaniesAsync(ct)).Any(c => c.CompanyId == id);
+        CompaniesFrom(await ReadEventsAsync(CatalogCompany, 0, ct)).Any(c => c.CompanyId == id);
 
     public async Task<Company> CreateCompanyAsync(CreateCompanyRequest request, CancellationToken ct)
     {

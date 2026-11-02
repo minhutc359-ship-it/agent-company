@@ -21,7 +21,7 @@ const modelServer = createServer(async (req, res) => {
   let body = ''; for await (const part of req) body += part;
   const payload = JSON.parse(body), context = JSON.parse(payload.messages[1].content); modelPayloads.push(payload);
   let result;
-  if (context.schema === 'aicos/public-collaboration/v1') result = { summary: 'Public fixture: preserve the approved scope. <img src="https://example.invalid/leak" onerror="window.companyLeak=1">', actionItems: ['Owner must review the actual receipts.'], citations: [] };
+  if (context.snapshot?.schema === 'aicos/public-collaboration/v2') result = { summary: 'Public fixture: preserve the approved scope. <img src="https://example.invalid/leak" onerror="window.companyLeak=1">', actionItems: ['Owner must review the actual receipts.'], citations: [] };
   else if (context.role === 'ba') result = { title: 'Non-empty validation', goals: ['Reject empty string input.'], acceptance: [{ id: 'AC-001', description: 'Empty values fail and valid values pass.', verification: 'test' }], assumptions: [], openQuestions: [] };
   else if (context.role === 'leader') result = { summary: 'Independent code and docs tasks.', tasks: [{ id: 'code', title: 'Fix non-empty validation', agentId: 'dev-agent', dependsOn: [], allowedPaths: ['src/'], acceptanceIds: ['AC-001'] }, { id: 'docs', title: 'Document the validation rule', agentId: 'dev-2', dependsOn: [], allowedPaths: ['docs/'], acceptanceIds: ['AC-001'] }] };
   else if (context.role === 'dev') {
@@ -101,6 +101,33 @@ try {
   await page.click('[data-company-tab=collaboration]'); await page.click('#sendCompanyMessage'); await page.selectOption('#messageAgent', 'ba-agent'); await page.fill('#messageSummary', 'Please review the accepted scope.'); await submit('companyMessageForm');
   await page.locator('[data-ai-reply]').first().click(); wb = await waitFor(w => w.consultations.some(j => j.status === 'completed'), 'Local public reply');
   check(wb.interactions.some(m => m.origin === 'model_proposal' && m.replyTo), 'Actual local adapter replies are labelled proposals and linked to the public question.');
+  await page.click('#companyNewBranch'); await page.fill('#branchName', 'Alternative review'); await page.selectOption('#branchForkMessage', { index: 1 }); await submit('companyBranchForm');
+  wb = await workbench(); const branch = wb.branches.find(b => b.name === 'Alternative review');
+  check(branch?.parentBranchId === 'main' && branch.forkMessageId, 'Conversation UI persists an immutable parent/message fork boundary.');
+  await page.click('#sendCompanyMessage'); await page.selectOption('#messageAgent', 'leader-agent'); await page.fill('#messageSummary', 'Evaluate only this alternative branch.'); await submit('companyMessageForm');
+  wb = await workbench(); check(wb.interactions.some(m => m.summary.includes('alternative branch') && m.branchId === branch.branchId), 'New public messages stay in the selected branch.');
+  await page.click('#companyCompareModels'); const comparisonRoutes = page.locator('input[name=comparisonRoute]'); await comparisonRoutes.nth(0).check(); await comparisonRoutes.nth(1).check();
+  await page.fill('#comparisonQuestion', 'Compare the two bounded approaches.'); await submit('companyComparisonForm');
+  wb = await waitFor(w => w.consultations.filter(j => j.comparisonId && j.status === 'completed').length >= 2, 'Same-snapshot model comparison');
+  const compared = wb.consultations.filter(j => j.comparisonId === wb.consultations.find(j => j.comparisonId)?.comparisonId);
+  check(compared.length === 2 && new Set(compared.map(j => j.contextSnapshotSha256)).size === 1 && new Set(compared.map(j => j.inputSha256)).size === 2, 'Compared routes share one public context snapshot while retaining distinct role/model payloads.');
+  await page.waitForFunction(() => document.querySelectorAll('#companyConsultations table tbody tr').length === 2 && document.querySelector('#companyConsultations table')?.textContent.includes('Owner must review the actual receipts'));
+  check((await page.locator('#companyConsultations table').innerText()).includes('Owner must review the actual receipts'), 'Comparison table must expose both public answers and action items with per-route usage.');
+  await page.screenshot({ path: join(output, 'company-comparison.png'), fullPage: true });
+
+  await page.click('#companySettings'); await page.selectOption('#companyPrivacyMode', 'controlled_cloud'); await submit('companyProfileForm');
+  await page.click('[data-company-tab=studio]'); await page.click('#configureCloudProvider'); await page.fill('#cloudProviderId', 'browser-openai'); await page.fill('#cloudProviderModel', 'gpt-6-astra'); await submit('cloudProviderForm');
+  await page.click('[data-cloud-credential=browser-openai]'); await page.fill('#cloudCredentialSecret', 'browser-fixture-credential'); await submit('cloudCredentialForm');
+  const credential = await api(cp + '/cloud/providers/browser-openai/credential');
+  check(credential.available && !JSON.stringify(credential).includes('browser-fixture-credential'), 'Credential UI/API returns availability only.');
+  await page.click('[data-cloud-credential=browser-openai]'); await page.click('#clearCloudCredential'); await page.waitForFunction(() => !document.getElementById('detailDialog').open);
+  check(!(await api(cp + '/cloud/providers/browser-openai/credential')).available, 'Owner can clear a session credential from Company UI.');
+  await page.click('[data-company-tab=collaboration]'); await page.locator('[data-cloud-preview]').first().click(); await page.locator('#cloudPreviewForm button[type=submit]').click();
+  await page.waitForFunction(() => document.getElementById('dialogTitle').textContent.includes('Egress manifest'));
+  check((await page.locator('#dialogBody').innerText()).includes('api.openai.com/v1/responses') && (await page.locator('#dialogBody').innerText()).includes('"store":false'), 'UI shows the exact stateless payload and pinned cloud endpoint before approval.');
+  await page.screenshot({ path: join(output, 'company-cloud-preview.png'), fullPage: true });
+  await page.click('#denyEgress'); await page.waitForFunction(() => !document.getElementById('detailDialog').open);
+  wb = await workbench(); check(wb.egressManifests.some(m => m.provider.providerId === 'browser-openai' && m.status === 'denied' && m.branchId === branch.branchId), 'Owner denial stays in the selected child branch even for an inherited question and performs no provider request.');
   await page.click('#companyNewMeeting'); await page.fill('#meetingAgenda', 'Review only recorded public constraints.'); await page.selectOption('#meetingParticipants', ['ba-agent', 'leader-agent']); await submit('companyMeetingForm');
   await page.locator('[data-start-meeting]').click(); wb = await waitFor(w => w.meetings[0]?.state === 'started', 'Meeting start'); const meetingId = wb.meetings[0].meetingId;
   await api(cp + '/interactions', { runId, type: 'inform', fromAgentId: 'owner', toAgentIds: ['leader-agent'], summary: 'Record the scope without granting new tools.', artifactRefs: [meetingId], citations: [] });
@@ -165,6 +192,9 @@ try {
   check(modelPayloads.length >= 5 && modelPayloads.every(p => !('tools' in p) && p.think === false), 'Real HTTP adapter dispatches pinned typed payloads without model tool grants.');
   await writeFile(join(output, 'company-results.json'), JSON.stringify({ checks, modelCalls: modelPayloads.length, sandbox: capability, officeBenchmark, errors, outbound, limitation: 'Model outputs use a protocol fixture; container phases execute actual code only when Docker is present.' }, null, 2));
   console.log(`PASS: ${checks} Company browser/API assertions; ${modelPayloads.length} local protocol calls; screenshots: ${output}`);
+} catch (error) {
+  if (page && !page.isClosed()) await page.screenshot({ path: join(output, 'company-failure.png'), fullPage: true }).catch(() => {});
+  throw error;
 } finally {
   await browser?.close();
   if (server && server.exitCode === null) await new Promise(r => { const timer = setTimeout(() => server.kill('SIGKILL'), 4000); server.once('exit', () => { clearTimeout(timer); r(); }); server.kill('SIGTERM'); });

@@ -1,5 +1,7 @@
 # 2.0 Company Workbench: supported contract and acceptance
 
+Historical release contract. See [2.2](RELEASE_2.2.md) for current capabilities and remaining limits.
+
 This release extends 1.0 with the core local software-delivery flow from spec §§38–60. It does not certify every optional mode or production acceptance target in the complete specification.
 
 ## Requirement mapping

@@ -1,4 +1,4 @@
-# API contract: local workspace 1.0
+# API contract: Company OS 2.2 local workspace
 
 Base: `http://127.0.0.1:4173/api/v1`. Bootstrap with `GET /api/session`; retain the HttpOnly session cookie. Every write requires exact local `Origin`. Workflow create/ACK/approval/pause/resume/cancel additionally require an identifier-shaped `Idempotency-Key` (1–100 ASCII letters, digits, `_`, `-`).
 
@@ -8,7 +8,7 @@ Errors use `{ "error": { "code": "...", "message": "...", "correlationId": "..."
 
 | Method | Route | Behavior |
 |---|---|---|
-| GET | `/health` | Actual active storage, local Ollama opt-in, loopback-only provider transport, no cloud-model calls; separate explicit GitHub-release capability |
+| GET | `/health` | Active storage/runtime/workflow versions and the explicit local/Controlled-Cloud/GitHub network boundaries |
 | GET/POST | `/companies` | List/create isolated local company; create body `{companyId,name}`; ID is the natural idempotency key; case-only aliases are rejected for portable file paths |
 | GET | `/providers/local/models` | Explicitly query installed local GGUF models; cloud/remote entries are filtered |
 | GET | `/roles`, `/skills` | Built-in immutable versioned contracts/metadata |
@@ -40,9 +40,11 @@ For SSE, deduplicate by sequence, replay after reconnect, and reload on `reset` 
 
 | Method | Company-scoped suffix | Behavior |
 |---|---|---|
-| GET/POST | `/sources` | Import `{sourceId,title,content,expectedRevision?}`; exact retry deduplicates; changed content creates a new immutable revision |
-| GET | `/sources/{sourceId}/revisions/{revision}` | Exact original source text/hash |
-| GET | `/knowledge/search?q=...` | Accent-insensitive lexical matching of current source revisions, top 10; explicitly not semantic search |
+| GET/POST | `/sources` | Import `{sourceId,title,content,expectedRevision?,kind?,classification?,parserVersion?,originalName?}`; changed content creates an immutable revision |
+| POST | `/sources/file` | Multipart `file,sourceId,title,expectedRevision,classification`; bounded offline TXT/MD/JSON/CSV/TSV/YAML/HTML/DOCX/XLSX/text-layer-PDF parsing |
+| GET | `/sources/{sourceId}/revisions/{revision}` | Exact parsed source text/hash and optional original filename/file-byte hash |
+| GET | `/knowledge/search?q=...` | Current-revision `local-hybrid-v1` lexical + deterministic local feature-vector ranking with exact citations and score components |
+| GET | `/knowledge/index-status` | Derived index version/mode/chunk/source counts and honest neural/ANN limitations |
 | GET/POST | `/memory/proposals` | Propose `{proposalId,stableKey,kind,body,citations}`; kind is fact/decision/constraint |
 | POST | `/memory/proposals/{proposalId}/review` | `{accepted,expectedCanonicalVersion}`; stale source or canonical version conflicts block acceptance |
 | GET | `/memory/canonical` | Current Owner-accepted records; historical versions remain in events |
@@ -93,8 +95,8 @@ Company-scoped routes:
 
 | Method | Suffix | Contract |
 |---|---|---|
-| GET | `/workbench` | Profile, projects, configurations, instruction packages, workflow versions, software runs, interactions, meetings and consultation jobs |
-| PUT | `/profile` | `{expectedVersion,description,departments,allowGitHubRelease}`; policy defaults to remote release disabled |
+| GET | `/workbench` | Profile, projects, configurations, packages, workflows, runs, branch/message/meeting/consultation state, cloud routes and egress manifests |
+| PUT | `/profile` | `{expectedVersion,description,departments,allowGitHubRelease,privacyMode,cloudPolicyVersion,maxCloudOutputTokens}`; Strict Local is default |
 | POST | `/projects` | `{projectId,name,repositoryPath,readPaths,writePaths,dockerImage,build,test,expectedVersion?,remoteUrl?,baseBranch?}`; typed commands use `{name,executable,arguments,timeoutSeconds}` |
 | GET | `/projects/{projectId}/inventory` | Safe committed base/file hashes/omissions and dependency inventory digest |
 | PUT | `/agents/{agentId}/configuration` | `{expectedVersion,department,modelId,skillRefs,maxInputBytes,maxOutputTokens}`; skill refs use `id@version`, model null means Owner typed input |
@@ -116,12 +118,14 @@ Company-scoped routes:
 
 Software states include waiting_input, queued, running, awaiting_plan_approval, paused, blocked, awaiting_final_approval, awaiting_release, completed and cancelled. Node status/typed output/tool receipt/Owner approval are separate. Exact sequence/hash conflicts return 409; schema failures return 400/422. Source text, models and packages cannot supply receipts or Owner authority. Jobs use leases/heartbeat; interrupted external operations require reconciliation and explicit retry. `/health` advertises the executable workflow version and optional release network boundary.
 
-## Public collaboration and meetings 2.0
+## Public collaboration, branches and model comparison 2.2
 
 | Method | Company-scoped suffix | Contract |
 |---|---|---|
-| POST | `/interactions` | `{runId,type,fromAgentId,toAgentIds,summary,artifactRefs,citations,replyTo?}`; run or lobby scope, valid company participants/artifacts; explicit Owner-authored origin |
-| POST | `/interactions/{interactionId}/respond` | `{agentId,roleId}`; selected recipient's installed local route, immutable context, durable bounded consultation job |
+| POST | `/interactions` | `{runId,type,fromAgentId,toAgentIds,summary,artifactRefs,citations,replyTo?,branchId?}`; reply must resolve in immutable branch history |
+| POST | `/conversation-branches` | `{branchId,runId,name,parentBranchId,forkMessageId?}` plus Idempotency-Key; parent history is visible only through the fork boundary |
+| POST | `/interactions/{interactionId}/respond` | `{agentId,roleId,branchId?}`; selected recipient's installed local route, immutable context, durable bounded consultation job; inherited questions can reply within their child branch |
+| POST | `/interactions/{interactionId}/compare` | `{candidates:[{agentId,roleId},...],branchId?}`; 2–4 routes, one shared public context snapshot hash, distinct route/model payloads |
 | GET | `/consultations` | Job state/input/usage; model replies are labelled model_proposal, not accepted decisions |
 | POST | `/consultations/{jobId}/retry` | Explicit retry for failed/interrupted jobs, max two attempts |
 | POST | `/meetings` | `{runId,agenda,participants}`; 2–8 company agents and Idempotency-Key |
@@ -129,4 +133,20 @@ Software states include waiting_input, queued, running, awaiting_plan_approval, 
 | POST | `/meetings/{meetingId}/complete` | `{expectedVersion,summary,actionItems,citations}`; Owner-supplied public minutes saved as immutable source |
 | POST | `/meetings/{meetingId}/summarize` | `{agentId,roleId}`; started participant's local model, only recorded matching public messages; minutes and reply commit atomically |
 
-Meeting/report source artifacts and proposed memory survive backup/migration. No consultation or meeting changes canonical memory automatically. Receiver ACKs validate context identity/hash/version mechanically and are visible in trace; they do not assert model understanding. The 2.0 supported node schemas, command semantics, size bounds and remaining capabilities are defined in [RELEASE_2.0.md](RELEASE_2.0.md).
+Meeting/report source artifacts and proposed memory survive backup/migration. No consultation or meeting changes canonical memory automatically. Receiver ACKs validate context identity/hash/version mechanically and are visible in trace; they do not assert model understanding.
+
+## Controlled Cloud 2.2
+
+| Method | Company-scoped suffix | Contract |
+|---|---|---|
+| PUT | `/cloud/providers/{providerId}` | `{expectedVersion,providerType,modelId,credentialRef,enabled}`; type is openai/anthropic/gemini, host/path/version are runtime-fixed |
+| PUT | `/cloud/providers/{providerId}/credential` | `{secret}` → availability only; secret is held in process RAM and is never returned or persisted |
+| DELETE | `/cloud/providers/{providerId}/credential` | Clear this company/provider type's RAM credential; an environment reference, if configured, remains host-managed |
+| GET | `/cloud/providers/{providerId}/credential` | Availability/source only (`session-memory` or `environment-reference`), never the value |
+| POST | `/interactions/{interactionId}/cloud-preview` | `{providerId,agentId,roleId,branchId?,excludedSourceIds?}` plus Idempotency-Key; local exact-payload manifest only, with optional retrieval exclusions and no network call; mandatory accepted memory cannot be silently omitted |
+| POST | `/cloud/egress/{manifestId}/decision` | `{expectedVersion,payloadSha256,approved}` plus Idempotency-Key; rechecks privacy policy/provider version/hash/credential before queueing |
+| POST | `/cloud/egress/{manifestId}/retry` | Retry the already approved exact payload once after failed/interrupted execution; changed policy/route requires a new preview |
+
+Manifest states are `awaiting_approval`, `denied`, `queued`, `running`, `completed`, `failed` or `interrupted`. It contains the exact credential-free payload, fixed destination, provider/model/API snapshots, public thread/branch, context item provenance/classifications, source excerpts, estimated size/tokens, request hash, consent ID, attempts/lease, measured usage and response/metadata hashes. Restricted context cannot be previewed. Strict Local prevents preview and fences queued work. Output is a bounded `cloud_model_proposal:<providerId>` public interaction, not an accepted decision.
+
+The supported contracts, limits and external acceptance boundaries are defined in [RELEASE_2.2.md](RELEASE_2.2.md). [RELEASE_2.0.md](RELEASE_2.0.md) remains the historical software-workbench contract.

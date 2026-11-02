@@ -240,6 +240,8 @@ async function browserChecks() {
   await page.fill('#searchQuery', 'SQLite'); await page.locator('#searchForm button').click();
   await page.locator('[data-propose]').waitFor();
   check(await page.locator('#searchResults img').count() === 0 && await page.evaluate(() => window.xss) === undefined, 'Imported HTML must render as plain text.');
+  await page.locator('[data-inspect-hit]').first().click(); await page.locator('#dialogBody mark').waitFor();
+  check((await page.locator('#dialogBody mark').innerText()).includes('SQLite'), 'Source inspection must highlight the exact retrieved UTF-16 span without executing source markup.'); await page.click('#closeDialog');
   await page.click('[data-propose]'); await page.fill('#memoryBody', 'Chỉ dùng SQLite local; không tự push.');
   await page.locator('#proposalForm button[type=submit]').click();
   await page.locator('[data-review][data-accepted=true]').waitFor(); await page.click('[data-review][data-accepted=true]');

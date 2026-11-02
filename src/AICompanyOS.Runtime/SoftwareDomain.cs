@@ -3,8 +3,10 @@ using System.Text.RegularExpressions;
 
 namespace AICompanyOS.Runtime;
 
-public sealed record CompanyProfile(int Version, string Description, string[] Departments, bool AllowGitHubRelease = false);
-public sealed record CompanyProfileRequest(int ExpectedVersion, string Description, string[] Departments, bool AllowGitHubRelease = false);
+public sealed record CompanyProfile(int Version, string Description, string[] Departments, bool AllowGitHubRelease = false,
+    string PrivacyMode = "strict_local", int CloudPolicyVersion = 1, int MaxCloudOutputTokens = 2048);
+public sealed record CompanyProfileRequest(int ExpectedVersion, string Description, string[] Departments, bool AllowGitHubRelease = false,
+    string PrivacyMode = "strict_local", int CloudPolicyVersion = 1, int MaxCloudOutputTokens = 2048);
 public sealed record AgentConfiguration(string AgentId, int Version, string Department, string? ModelId, string[] SkillRefs, int MaxInputBytes = 8000, int MaxOutputTokens = 4096);
 public sealed record AgentConfigurationRequest(int ExpectedVersion, string Department, string? ModelId, string[] SkillRefs, int MaxInputBytes = 8000, int MaxOutputTokens = 4096);
 public sealed record SkillPackage(string SkillId, string Version, string Name, string Instructions, string[] Roles, string[] RequestedTools);
@@ -52,8 +54,10 @@ public sealed record SoftwareRun(SoftwareSeed Seed, string State, int Round, Req
     SoftwareJob[] Jobs, TaskPatch[] Patches, IntegratedCandidate? Candidate, ExecutionReceipt[] Receipts, ExecutionGrant? Grant, SoftwareReport Report,
     long LastSequence, string? ResumeState = null, string? Error = null, ReleaseOutcome? Release = null, OwnerFeedback[]? OwnerFeedback = null, bool StepMode = false, SoftwareHandoff[]? Handoffs = null, SoftwareHandoffAck[]? HandoffAcks = null);
 public sealed record PublicInteraction(string InteractionId, string RunId, string Type, string FromAgentId, string[] ToAgentIds, string Summary,
-    string[] ArtifactRefs, Citation[] Citations, string? ReplyTo, string Status, string DedupeKey, DateTimeOffset CreatedAt, string Origin = "owner_authored");
-public sealed record InteractionRequest(string RunId, string Type, string FromAgentId, string[] ToAgentIds, string Summary, string[] ArtifactRefs, Citation[] Citations, string? ReplyTo = null);
+    string[] ArtifactRefs, Citation[] Citations, string? ReplyTo, string Status, string DedupeKey, DateTimeOffset CreatedAt, string Origin = "owner_authored", string BranchId = "main", string[]? ActionItems = null);
+public sealed record InteractionRequest(string RunId, string Type, string FromAgentId, string[] ToAgentIds, string Summary, string[] ArtifactRefs, Citation[] Citations, string? ReplyTo = null, string BranchId = "main");
+public sealed record ConversationBranch(string BranchId, string RunId, string Name, string? ParentBranchId, string? ForkMessageId, DateTimeOffset CreatedAt, int? ParentHistoryLength = null);
+public sealed record ConversationBranchRequest(string BranchId, string RunId, string Name, string ParentBranchId = "main", string? ForkMessageId = null);
 public sealed record Meeting(string MeetingId, string RunId, string Agenda, string[] Participants, string State, string? Summary, string[] ActionItems, Citation[] Citations, int Version);
 public sealed record MeetingRequest(string RunId, string Agenda, string[] Participants);
 public sealed record MeetingCompleteRequest(int ExpectedVersion, string Summary, string[] ActionItems, Citation[] Citations);

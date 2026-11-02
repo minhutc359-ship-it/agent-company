@@ -3,7 +3,8 @@ using System.Text.Json;
 namespace AICompanyOS.Runtime;
 
 public sealed record CompanyWorkbench(CompanyProfile Profile, RepositoryProject[] Projects, AgentConfiguration[] AgentConfigurations,
-    SkillPackage[] Skills, SoftwareWorkflow[] Workflows, SoftwareRun[] Runs, PublicInteraction[] Interactions, Meeting[] Meetings, ConsultationJob[] Consultations);
+    SkillPackage[] Skills, SoftwareWorkflow[] Workflows, SoftwareRun[] Runs, PublicInteraction[] Interactions, Meeting[] Meetings, ConsultationJob[] Consultations,
+    ConversationBranch[] Branches, CloudProviderConfiguration[] CloudProviders, EgressManifest[] EgressManifests);
 
 public sealed partial class FileEventStore
 {
@@ -17,6 +18,14 @@ public sealed partial class FileEventStore
     private static SoftwareWorkflow[] WorkflowsFrom(IEnumerable<DomainEvent> events) => new[] { SoftwareContracts.DefaultWorkflow }
         .Concat(events.Where(e => e.Type == "workflow.definition.saved").Select(e => e.Data.Deserialize<SoftwareWorkflow>(JsonOptions)!)).ToArray();
     private static PublicInteraction[] InteractionsFrom(IEnumerable<DomainEvent> events) => events.Where(e => e.Type == "interaction.created").Select(e => e.Data.Deserialize<PublicInteraction>(JsonOptions)!).ToArray();
+    private static ConversationBranch[] BranchesFrom(IEnumerable<DomainEvent> events)
+    {
+        var source = events.ToArray();
+        var explicitBranches = source.Where(e => e.Type == "conversation.branch.created").Select(e => e.Data.Deserialize<ConversationBranch>(JsonOptions)!).ToArray();
+        var runIds = source.Where(e => e.Type is "software.created" or "workflow.created" or "interaction.created").Select(e => e.RunId).Append("lobby").Distinct(StringComparer.Ordinal);
+        return runIds.Select(runId => new ConversationBranch("main", runId, "Main", null, null, DateTimeOffset.MinValue))
+            .Concat(explicitBranches).OrderBy(b => b.RunId, StringComparer.Ordinal).ThenBy(b => b.CreatedAt).ToArray();
+    }
     private static Meeting[] MeetingsFrom(IEnumerable<DomainEvent> events) => events.Where(e => e.Type is "meeting.created" or "meeting.started" or "meeting.completed")
         .Select(e => e.Data.Deserialize<Meeting>(JsonOptions)!).GroupBy(m => m.MeetingId).Select(g => g.Last()).ToArray();
     private static SoftwareRun[] SoftwareRunsFrom(string company, IEnumerable<DomainEvent> events) => events.GroupBy(e => e.RunId)
@@ -28,21 +37,27 @@ public sealed partial class FileEventStore
         {
             var events = await ReadEventsUnsafeAsync(company, 0, ct);
             return new(ProfileFrom(events), ProjectsFrom(events), ConfigurationsFrom(events), SkillsFrom(events), WorkflowsFrom(events),
-                SoftwareRunsFrom(company, events), InteractionsFrom(events), MeetingsFrom(events), ConsultationsFrom(events));
+                SoftwareRunsFrom(company, events), InteractionsFrom(events), MeetingsFrom(events), ConsultationsFrom(events), BranchesFrom(events),
+                CloudProvidersFrom(events), EgressManifestsFrom(events));
         }
         finally { _gate.Release(); }
     }
     public async Task<CompanyProfile> ConfigureCompanyAsync(string company, CompanyProfileRequest request, CancellationToken ct)
     {
         if (request.Description is null || request.Description.Length > 2000 || SourceSafety.ContainsKnownSecret(request.Description) ||
-            request.Departments is not { Length: > 0 and <= 12 } || request.Departments.Any(s => string.IsNullOrWhiteSpace(s) || s.Length > 80) || request.Departments.Distinct().Count() != request.Departments.Length)
+            request.Departments is not { Length: > 0 and <= 12 } || request.Departments.Any(s => string.IsNullOrWhiteSpace(s) || s.Length > 80) || request.Departments.Distinct().Count() != request.Departments.Length ||
+            request.PrivacyMode is not ("strict_local" or "controlled_cloud") || request.CloudPolicyVersion < 1 || request.CloudPolicyVersion > 100000 || request.MaxCloudOutputTokens is < 256 or > 4096)
             throw new ArgumentException("Choose 1–12 departments and a bounded, secret-free description.");
         await _gate.WaitAsync(ct);
         try
         {
             var events = await ReadEventsUnsafeAsync(company, 0, ct); var profile = ProfileFrom(events);
             if (profile.Version != request.ExpectedVersion) throw new WorkspaceConflictException("Company settings changed.");
-            var updated = new CompanyProfile(profile.Version + 1, request.Description, request.Departments, request.AllowGitHubRelease);
+            if (request.CloudPolicyVersion < profile.CloudPolicyVersion) throw new WorkspaceConflictException("Cloud policy versions cannot move backwards.");
+            var cloudPolicyVersion = Math.Max(request.CloudPolicyVersion, profile.CloudPolicyVersion +
+                (profile.PrivacyMode != request.PrivacyMode || profile.MaxCloudOutputTokens != request.MaxCloudOutputTokens ? 1 : 0));
+            var updated = new CompanyProfile(profile.Version + 1, request.Description, request.Departments, request.AllowGitHubRelease,
+                request.PrivacyMode, cloudPolicyVersion, request.MaxCloudOutputTokens);
             await AppendUnsafeAsync(company, "company-settings", [DomainEvent.Create("company.profile.changed", updated)], events, ct); return updated;
         }
         finally { _gate.Release(); }
@@ -121,6 +136,64 @@ public sealed partial class FileEventStore
     {
         if (run != "lobby" && !events.Any(e => e.RunId == run && e.Type is "software.created" or "workflow.created")) throw new KeyNotFoundException("Conversation scope not found in this company.");
     }
+    internal static PublicInteraction[] BranchHistory(IReadOnlyList<DomainEvent> events, string runId, string branchId)
+    {
+        var interactions = InteractionsFrom(events).Where(i => i.RunId == runId).ToArray();
+        if (branchId == "main") return interactions.Where(i => i.BranchId == "main").ToArray();
+        var branches = BranchesFrom(events).Where(b => b.RunId == runId).ToDictionary(b => b.BranchId, StringComparer.Ordinal);
+        var result = new List<PublicInteraction>(); var chain = new Stack<ConversationBranch>(); var current = branchId;
+        for (var depth = 0; current != "main"; depth++)
+        {
+            if (depth >= 6 || !branches.TryGetValue(current, out var branch)) throw new WorkspaceConflictException("Conversation branch ancestry is invalid.");
+            chain.Push(branch); current = branch.ParentBranchId ?? "main";
+        }
+        var parent = interactions.Where(i => i.BranchId == "main").ToList();
+        while (chain.Count > 0)
+        {
+            var branch = chain.Pop();
+            if (branch.ParentHistoryLength is { } length) parent = parent.Take(length).ToList();
+            if (branch.ForkMessageId is not null)
+            {
+                var index = parent.FindIndex(i => i.InteractionId == branch.ForkMessageId);
+                if (index < 0) throw new WorkspaceConflictException("Conversation fork message is unavailable.");
+                parent = parent.Take(index + 1).ToList();
+            }
+            parent.AddRange(interactions.Where(i => i.BranchId == branch.BranchId));
+        }
+        result.AddRange(parent); return result.ToArray();
+    }
+    public async Task<ConversationBranch> CreateConversationBranchAsync(string company, ConversationBranchRequest request, string key, CancellationToken ct)
+    {
+        if (!Identifiers.IsValid(request.RunId) || !Identifiers.IsValid(request.BranchId) || request.BranchId == "main" || !Identifiers.IsValid(request.ParentBranchId) ||
+            string.IsNullOrWhiteSpace(request.Name) || request.Name.Length > 120 || SourceSafety.ContainsKnownSecret(request.Name)) throw new ArgumentException("Use a bounded unique branch ID, name and valid parent.");
+        await _gate.WaitAsync(ct);
+        try
+        {
+            var events = await ReadEventsUnsafeAsync(company, 0, ct); RequireConversationRun(company, request.RunId, events);
+            var branches = BranchesFrom(events).Where(b => b.RunId == request.RunId).ToArray();
+            if (!branches.Any(b => b.BranchId == request.ParentBranchId)) throw new ArgumentException("Parent branch does not exist in this thread.");
+            var existing = branches.FirstOrDefault(b => b.BranchId == request.BranchId);
+            var hash = RuntimeJson.Hash(request);
+            var replay = events.FirstOrDefault(e => e.Type == "conversation.branch.command" && ReadString(e.Data, "key") == key);
+            if (replay is not null) return ReadString(replay.Data, "hash") == hash ? branches.Single(b => b.BranchId == ReadString(replay.Data, "branchId")) : throw new WorkspaceConflictException("Branch key belongs to another payload.");
+            if (existing is not null) throw new WorkspaceConflictException("Branch ID already exists in this thread.");
+            if (branches.Length >= 20) throw new WorkspaceConflictException("A thread supports at most 20 branches.");
+            var history = BranchHistory(events, request.RunId, request.ParentBranchId);
+            var forkIndex = request.ForkMessageId is null ? history.Length - 1 : Array.FindIndex(history, i => i.InteractionId == request.ForkMessageId);
+            if (request.ForkMessageId is not null && forkIndex < 0) throw new ArgumentException("Fork message must resolve in the parent branch history.");
+            var depth = 1; var ancestor = request.ParentBranchId;
+            while (ancestor != "main")
+            {
+                if (++depth > 6) throw new WorkspaceConflictException("Conversation forks support at most six ancestry levels.");
+                ancestor = branches.Single(b => b.BranchId == ancestor).ParentBranchId ?? "main";
+            }
+            var branch = new ConversationBranch(request.BranchId, request.RunId, request.Name.Trim(), request.ParentBranchId,
+                forkIndex >= 0 ? history[forkIndex].InteractionId : null, DateTimeOffset.UtcNow, forkIndex + 1);
+            await AppendUnsafeAsync(company, request.RunId, [DomainEvent.Create("conversation.branch.created", branch), DomainEvent.Create("conversation.branch.command", new { key, hash, branchId = branch.BranchId })], events, ct);
+            return branch;
+        }
+        finally { _gate.Release(); }
+    }
     public async Task<PublicInteraction> AddInteractionAsync(string company, InteractionRequest request, string key, CancellationToken ct)
     {
         if (!Identifiers.IsValid(request.RunId) || request.Type is not ("inform" or "consult" or "peer_review" or "escalation" or "status" or "question" or "answer") ||
@@ -130,10 +203,11 @@ public sealed partial class FileEventStore
         try
         {
             var events = await ReadEventsUnsafeAsync(company, 0, ct); RequireConversationRun(company, request.RunId, events);
+            if (!Identifiers.IsValid(request.BranchId) || !BranchesFrom(events).Any(b => b.RunId == request.RunId && b.BranchId == request.BranchId)) throw new ArgumentException("Conversation branch does not exist in this thread.");
             var agents = AgentsFrom(company, await ReadEventsUnsafeAsync(CatalogCompany, 0, ct), events);
             if (request.FromAgentId != "owner" && !agents.Any(a => a.AgentId == request.FromAgentId) || request.ToAgentIds.Any(id => id != "owner" && !agents.Any(a => a.AgentId == id))) throw new ArgumentException("Interaction participants must belong to this company.");
             if (request.Citations.Length > 0) ValidateCitations(request.Citations, SourcesFrom(events));
-            if (request.ReplyTo is not null && !InteractionsFrom(events).Any(i => i.InteractionId == request.ReplyTo && i.RunId == request.RunId)) throw new ArgumentException("Reply does not resolve in this thread.");
+            if (request.ReplyTo is not null && !BranchHistory(events, request.RunId, request.BranchId).Any(i => i.InteractionId == request.ReplyTo)) throw new ArgumentException("Reply does not resolve in this branch history.");
             var software = RebuildSoftwareRun(company, request.RunId, events.Where(e => e.RunId == request.RunId).ToArray());
             var legacy = RebuildRun(company, request.RunId, events.Where(e => e.RunId == request.RunId).ToArray());
             var refs = MeetingsFrom(events).Where(m => m.RunId == request.RunId).Select(m => m.MeetingId)
@@ -142,9 +216,9 @@ public sealed partial class FileEventStore
             if (request.ArtifactRefs.Any(r => r is null || !refs.Contains(r))) throw new ArgumentException("Artifact references must resolve in this company and thread.");
             var prior = InteractionsFrom(events).FirstOrDefault(i => i.DedupeKey == key);
             if (prior is not null) return prior.Summary == request.Summary && prior.RunId == request.RunId && prior.Type == request.Type && prior.FromAgentId == request.FromAgentId && prior.ToAgentIds.SequenceEqual(request.ToAgentIds)
-                && prior.ReplyTo == request.ReplyTo && RuntimeJson.Hash(prior.ArtifactRefs) == RuntimeJson.Hash(request.ArtifactRefs) && RuntimeJson.Hash(prior.Citations) == RuntimeJson.Hash(request.Citations) ? prior : throw new WorkspaceConflictException("Interaction key belongs to another payload.");
+                && prior.ReplyTo == request.ReplyTo && prior.BranchId == request.BranchId && RuntimeJson.Hash(prior.ArtifactRefs) == RuntimeJson.Hash(request.ArtifactRefs) && RuntimeJson.Hash(prior.Citations) == RuntimeJson.Hash(request.Citations) ? prior : throw new WorkspaceConflictException("Interaction key belongs to another payload.");
             var interaction = new PublicInteraction("message-" + Guid.NewGuid().ToString("N"), request.RunId, request.Type, request.FromAgentId, request.ToAgentIds, request.Summary,
-                request.ArtifactRefs, request.Citations, request.ReplyTo, "recorded", key, DateTimeOffset.UtcNow);
+                request.ArtifactRefs, request.Citations, request.ReplyTo, "recorded", key, DateTimeOffset.UtcNow, "owner_authored", request.BranchId);
             await AppendUnsafeAsync(company, request.RunId, [DomainEvent.Create("interaction.created", interaction)], events, ct); return interaction;
         }
         finally { _gate.Release(); }

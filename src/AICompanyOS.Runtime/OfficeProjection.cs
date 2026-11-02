@@ -24,6 +24,7 @@ public sealed partial class FileEventStore
         var meetings = MeetingsFrom(events).Where(m => m.State == "started").ToArray();
         var messages = InteractionsFrom(events);
         var consultations = ConsultationsFrom(events);
+        var egress = EgressManifestsFrom(events);
         var runs = events.GroupBy(e => e.RunId).Select(g => RebuildRun(companyId, g.Key, g.ToArray()))
             .Where(r => r is not null).Cast<WorkflowRun>().OrderByDescending(r => r.LastSequence).ToArray();
         var projection = agents.Select(agent =>
@@ -32,16 +33,20 @@ public sealed partial class FileEventStore
             var meeting = meetings.LastOrDefault(m => m.Participants.Contains(agent.AgentId));
             var message = messages.LastOrDefault(m => m.FromAgentId == agent.AgentId);
             var consultation = consultations.LastOrDefault(j => j.Binding.Agent.AgentId == agent.AgentId && j.Status is "queued" or "running");
+            var cloud = egress.FirstOrDefault(m => m.AgentId == agent.AgentId && m.Status is "awaiting_approval" or "queued" or "running");
             var recentLegacy = runs.FirstOrDefault(r => r.CurrentOwner == agent.AgentId || r.LeaderAgentId == agent.AgentId && r.State == "awaiting_handoff" || r.Delivery?.Bindings.Any(b => b.Agent.AgentId == agent.AgentId) == true);
-            var preferLegacy = recentLegacy is not null && recentLegacy.LastSequence > (work?.LastSequence ?? 0) && recentLegacy.State is not ("approved" or "cancelled" or "delivered" or "revision_requested") && meeting is null && consultation?.Status != "running";
+            var preferLegacy = recentLegacy is not null && recentLegacy.LastSequence > (work?.LastSequence ?? 0) && recentLegacy.State is not ("approved" or "cancelled" or "delivered" or "revision_requested") && meeting is null && consultation?.Status != "running" && cloud is null;
             if (preferLegacy) work = null;
-            if (!preferLegacy && (work is not null || meeting is not null || consultation is not null || message is not null))
+            if (!preferLegacy && (work is not null || meeting is not null || consultation is not null || cloud is not null || message is not null))
             {
                 var job = work?.Jobs.Where(j => j.Round == work.Round && j.AgentId == agent.AgentId && j.Status is not ("superseded" or "cancelled")).OrderBy(j => j.Status == "running" ? 0 : j.Status == "queued" ? 1 : 2).FirstOrDefault();
                 var softwareState = job?.Status == "running" && job.LeaseUntil > DateTimeOffset.UtcNow ? job.RoleId switch { "ba" => "researching", "leader" => "planning", "dev" => "coding", "tester" => "testing", _ => "reviewing" }
                     : consultation?.Status == "running" && consultation.LeaseUntil > DateTimeOffset.UtcNow ? "talking"
+                    : cloud?.Status == "running" && cloud.LeaseUntil > DateTimeOffset.UtcNow ? "talking"
+                    : cloud?.Status == "awaiting_approval" ? "waiting_approval"
                     : meeting is not null ? "meeting"
                     : consultation?.Status == "queued" ? "queued"
+                    : cloud?.Status == "queued" ? "queued"
                     : work?.State == "paused" ? "paused"
                     : job?.Status == "waiting_input" ? "waiting_input"
                     : job?.Status == "queued" ? "queued"
@@ -49,9 +54,10 @@ public sealed partial class FileEventStore
                     : work?.State == "awaiting_plan_approval" && agent.RoleIds.Contains("leader") || work?.State is "awaiting_final_approval" or "awaiting_release" && agent.RoleIds.Contains("subpm") ? "waiting_approval" : "idle";
                 var softwareSummary = work is null ? "Public collaboration activity; no tool permissions are inferred." : $"Software run {work.Seed.RunId}: {work.State}; node {job?.NodeId ?? "owner gate"}. Output and command receipts remain separate.";
                 if (meeting is not null) softwareSummary += " Meeting: " + meeting.Agenda;
-                return new OfficeAgent(agent, softwareState, work?.Seed.RunId ?? meeting?.RunId ?? consultation?.RunId, softwareSummary, work?.LastSequence ?? events.LastOrDefault()?.Seq ?? 0,
-                    events.LastOrDefault()?.CreatedAt, consultation?.Binding.Model?.Name ?? work?.Seed.Bindings.FirstOrDefault(b => b.Agent.AgentId == agent.AgentId && b.RoleId == job?.RoleId)?.Model?.Name,
-                    consultation?.Binding.RoleId ?? job?.RoleId, message?.InteractionId, message?.Summary, meeting?.MeetingId, message?.RunId);
+                if (cloud is not null) softwareSummary += " Controlled Cloud " + cloud.Provider.ProviderId + ": " + cloud.Status + "; request " + cloud.PayloadSha256 + ".";
+                return new OfficeAgent(agent, softwareState, work?.Seed.RunId ?? meeting?.RunId ?? consultation?.RunId ?? cloud?.RunId, softwareSummary, work?.LastSequence ?? events.LastOrDefault()?.Seq ?? 0,
+                    events.LastOrDefault()?.CreatedAt, consultation?.Binding.Model?.Name ?? cloud?.Provider.ModelId ?? work?.Seed.Bindings.FirstOrDefault(b => b.Agent.AgentId == agent.AgentId && b.RoleId == job?.RoleId)?.Model?.Name,
+                    consultation?.Binding.RoleId ?? cloud?.RoleId ?? job?.RoleId, message?.InteractionId, message?.Summary, meeting?.MeetingId, message?.RunId);
             }
             var related = runs.Where(r => r.CurrentOwner == agent.AgentId || r.LeaderAgentId == agent.AgentId && r.State == "awaiting_handoff" ||
                 r.Delivery?.Bindings.Any(b => b.Agent.AgentId == agent.AgentId) == true).ToArray();
@@ -108,9 +114,10 @@ public sealed partial class FileEventStore
             var runs = events.GroupBy(e => e.RunId).Select(g => RebuildRun(companyId, g.Key, g.ToArray()))
                 .Where(r => r is not null).Cast<WorkflowRun>().OrderByDescending(r => r.LastSequence).ToArray();
             var sources = SourcesFrom(events).GroupBy(s => s.SourceId).Select(g => g.Last())
-                .Select(s => new SourceSummary(s.SourceId, s.Revision, s.Title, s.ContentSha256, s.ImportedAt, s.Content.Length)).ToArray();
+                .Select(s => new SourceSummary(s.SourceId, s.Revision, s.Title, s.ContentSha256, s.ImportedAt, s.Content.Length, s.Kind, s.Classification, s.ParserVersion, s.OriginalName, s.OriginalSha256)).ToArray();
             var workbench = new CompanyWorkbench(ProfileFrom(events), ProjectsFrom(events), ConfigurationsFrom(events), SkillsFrom(events), WorkflowsFrom(events),
-                SoftwareRunsFrom(companyId, events), InteractionsFrom(events), MeetingsFrom(events), ConsultationsFrom(events));
+                SoftwareRunsFrom(companyId, events), InteractionsFrom(events), MeetingsFrom(events), ConsultationsFrom(events), BranchesFrom(events),
+                CloudProvidersFrom(events), EgressManifestsFrom(events));
             return new(Backend, runs, agents, events.Select(e => new EventSummary(e.Seq, e.EventId, e.RunId, e.Type, e.CreatedAt)).ToArray(),
                 sources, CanonicalFrom(events), ProposalsFrom(events), ProjectOffice(companyId, agents, events), workbench);
         }
@@ -120,6 +127,7 @@ public sealed partial class FileEventStore
 }
 
 public sealed record EventSummary(long Seq, string EventId, string RunId, string Type, DateTimeOffset CreatedAt);
-public sealed record SourceSummary(string SourceId, int Revision, string Title, string ContentSha256, DateTimeOffset ImportedAt, int Characters);
+public sealed record SourceSummary(string SourceId, int Revision, string Title, string ContentSha256, DateTimeOffset ImportedAt, int Characters,
+    string Kind = "text", string Classification = "internal", string ParserVersion = "plain-v1", string? OriginalName = null, string? OriginalSha256 = null);
 public sealed record WorkspaceView(string Storage, WorkflowRun[] Runs, Agent[] Agents, EventSummary[] Events,
     SourceSummary[] Sources, MemoryRecord[] Canonical, MemoryProposal[] Proposals, OfficeSnapshot Office, CompanyWorkbench? Workbench = null);

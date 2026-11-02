@@ -25,10 +25,39 @@ public static class SoftwareEndpoints
         companies.MapPost("/skills", async (string companyId, SkillPackage request, FileEventStore store, CancellationToken ct) => await store.InstallSkillAsync(companyId, request, ct));
         companies.MapPost("/workflows", async (string companyId, SoftwareWorkflow request, FileEventStore store, CancellationToken ct) => await store.SaveWorkflowAsync(companyId, request, false, ct));
         companies.MapPost("/interactions", async (string companyId, InteractionRequest request, HttpContext context, FileEventStore store, CancellationToken ct) => await store.AddInteractionAsync(companyId, request, Key(context), ct));
+        companies.MapPost("/conversation-branches", async (string companyId, ConversationBranchRequest request, HttpContext context, FileEventStore store, CancellationToken ct) => await store.CreateConversationBranchAsync(companyId, request, Key(context), ct));
         companies.MapGet("/consultations", async (string companyId, FileEventStore store, CancellationToken ct) => await store.ListConsultationsAsync(companyId, ct));
         companies.MapPost("/interactions/{interactionId}/respond", async (string companyId, string interactionId, ConsultationRequest request, HttpContext context, FileEventStore store, ISoftwareModelClient models, CancellationToken ct) =>
             await store.QueueConsultationAsync(companyId, interactionId, request, await models.ListAsync(ct), Key(context), ct));
+        companies.MapPost("/interactions/{interactionId}/compare", async (string companyId, string interactionId, ConsultationComparisonRequest request, HttpContext context, FileEventStore store, ISoftwareModelClient models, CancellationToken ct) =>
+            await store.QueueComparisonAsync(companyId, interactionId, request, await models.ListAsync(ct), Key(context), ct));
         companies.MapPost("/consultations/{jobId}/retry", async (string companyId, string jobId, FileEventStore store, CancellationToken ct) => await store.RetryConsultationAsync(companyId, jobId, ct));
+        companies.MapPut("/cloud/providers/{providerId}", async (string companyId, string providerId, CloudProviderConfigurationRequest request, FileEventStore store, CancellationToken ct) =>
+            await store.ConfigureCloudProviderAsync(companyId, providerId, request, ct));
+        companies.MapPut("/cloud/providers/{providerId}/credential", async (string companyId, string providerId, CloudCredentialRequest request, FileEventStore store, RuntimeCredentialVault vault, CancellationToken ct) =>
+        {
+            var provider = (await store.WorkbenchAsync(companyId, ct)).CloudProviders.FirstOrDefault(p => p.ProviderId == providerId) ?? throw new KeyNotFoundException();
+            return vault.Set(companyId, providerId, provider.ProviderType, request.Secret);
+        });
+        companies.MapDelete("/cloud/providers/{providerId}/credential", async (string companyId, string providerId, FileEventStore store, RuntimeCredentialVault vault, CancellationToken ct) =>
+        {
+            var provider = (await store.WorkbenchAsync(companyId, ct)).CloudProviders.FirstOrDefault(p => p.ProviderId == providerId) ?? throw new KeyNotFoundException();
+            vault.Clear(companyId, providerId, provider.ProviderType);
+            return vault.Status(companyId, providerId, provider.ProviderType, provider.CredentialRef);
+        });
+        companies.MapGet("/cloud/providers/{providerId}/credential", async Task<IResult> (string companyId, string providerId, FileEventStore store, RuntimeCredentialVault vault, CancellationToken ct) =>
+        {
+            var provider = (await store.WorkbenchAsync(companyId, ct)).CloudProviders.FirstOrDefault(p => p.ProviderId == providerId);
+            return provider is null ? Results.NotFound() : Results.Ok(vault.Status(companyId, providerId, provider.ProviderType, provider.CredentialRef));
+        });
+        companies.MapPost("/interactions/{interactionId}/cloud-preview", async (string companyId, string interactionId, EgressPreviewRequest request, HttpContext context, FileEventStore store, CancellationToken ct) =>
+            await store.PrepareEgressAsync(companyId, interactionId, request, Key(context), ct));
+        companies.MapPost("/cloud/egress/{manifestId}/decision", async (string companyId, string manifestId, EgressDecisionRequest request, HttpContext context, FileEventStore store, RuntimeCredentialVault vault, CancellationToken ct) =>
+        {
+            var provider = (await store.WorkbenchAsync(companyId, ct)).EgressManifests.FirstOrDefault(m => m.ManifestId == manifestId)?.Provider ?? throw new KeyNotFoundException();
+            return await store.DecideEgressAsync(companyId, manifestId, request, vault.Status(companyId, provider.ProviderId, provider.ProviderType, provider.CredentialRef).Available, Key(context), ct);
+        });
+        companies.MapPost("/cloud/egress/{manifestId}/retry", async (string companyId, string manifestId, FileEventStore store, CancellationToken ct) => await store.RetryEgressAsync(companyId, manifestId, ct));
         companies.MapPost("/meetings", async (string companyId, MeetingRequest request, HttpContext context, FileEventStore store, CancellationToken ct) => await store.CreateMeetingAsync(companyId, request, Key(context), ct));
         companies.MapPost("/meetings/{meetingId}/start", async (string companyId, string meetingId, MeetingCompleteRequest request, FileEventStore store, CancellationToken ct) => await store.ChangeMeetingAsync(companyId, meetingId, true, request, ct));
         companies.MapPost("/meetings/{meetingId}/complete", async (string companyId, string meetingId, MeetingCompleteRequest request, FileEventStore store, CancellationToken ct) => await store.ChangeMeetingAsync(companyId, meetingId, false, request, ct));

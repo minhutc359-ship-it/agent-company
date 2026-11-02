@@ -14,7 +14,7 @@ This milestone is a single-owner application running on `127.0.0.1:4173`. The lo
 
 ## What these controls do not establish
 
-Active File/SQLite data is **not encrypted at rest**. Use a private data directory and OS disk encryption appropriate to the device. Existing directories retain their OS permissions; the app makes a newly created data root owner-only on Unix. There is no secret vault or provider key storage in this milestone.
+Active File/SQLite data is **not encrypted at rest**. Use a private data directory and OS disk encryption appropriate to the device. Existing directories retain their OS permissions; the app makes a newly created data root owner-only on Unix. Provider credentials can use an ephemeral process-memory vault or an `AICOS_PROVIDER_*` environment reference. There is no OS keychain/Secret Service integration or encrypted persistent credential vault in this release; RAM/environment values are readable by sufficiently privileged same-user processes and disappear or remain according to their host process/environment lifecycle.
 
 The credential scanner recognizes common patterns and can have false positives and false negatives. Review input before import. It is not a proof that a source contains no secret. Nothing in an imported source can authorize an action.
 
@@ -26,11 +26,13 @@ Backups use PBKDF2-HMAC-SHA256 (600,000 iterations) and AES-256-GCM. A forgotten
 
 ## Network status
 
-The runtime has an opt-in local Ollama client. It has no cloud model provider, remote DB, telemetry, update checker or cloud fallback. Explicit Owner-approved GitHub release is a separate optional network capability. A previously queued local-model job can resume after restart; an interrupted running job requires explicit retry. The provider transport disables proxy use and redirects, accepts only a numeric IPv4 loopback endpoint, filters remote/cloud models and rechecks the pinned model digest and local GGUF/completion/context metadata before dispatch. Configure the trusted Ollama server with cloud features disabled. Metadata checks cannot prove the behavior of a compromised local server.
+The runtime has an opt-in local Ollama client and an optional Controlled Cloud gateway. There is no remote DB, telemetry, update checker or automatic cloud fallback. Local inference remains default. Explicit Owner-approved GitHub release is a separate optional network capability. A previously queued local-model job can resume after restart; interrupted local/cloud work requires explicit retry. The Ollama transport disables proxy use and redirects, accepts only numeric IPv4 loopback, filters remote/cloud models and rechecks the pinned digest/GGUF/capabilities/context metadata. Configure the trusted Ollama server with cloud features disabled. Metadata checks cannot prove the behavior of a compromised local server.
 
 UI fonts/graphics/scripts are local. The browser integration fixture recorded zero non-loopback requests. This is not an OS-wide packet-capture or firewall conformance report. SDK/NuGet/npm/browser installation can contact package services during development; that tooling is separate from runtime behavior.
 
-Cloud support requires a future exact-payload egress gateway, per-company policy, retention notice and consent. A toggle or a role label alone must never enable outbound calls.
+Controlled Cloud supports only runtime-fixed HTTPS destinations for OpenAI Responses, Anthropic Messages and Gemini Interactions. The HTTP client disables redirects and proxies. A provider configuration alone never calls the network. Strict Local blocks preparation and dispatch. Controlled Cloud requires a locally persisted exact credential-free payload, provenance/classification/size/retention manifest, matching request hash, explicit Owner consent, current provider/policy versions and a credential available only at dispatch. Revoking policy fences queued work but cannot recall bytes already accepted by the provider.
+
+The gateway sets stateless request controls where available, validates bounded structured public output and stores only response/metadata hashes plus measured usage and the public proposal. Provider processing, abuse monitoring, logs, regional handling, feature-specific storage and Zero Data Retention eligibility remain outside the runtime and must be verified for the actual account. The deterministic adapter tests use local HTTP handlers; they do not make paid calls or certify provider terms. Secret-pattern scanning is incomplete, so the exact-payload review remains mandatory.
 
 
 ## Static delivery boundary (1.0)

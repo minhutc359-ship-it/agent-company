@@ -1,10 +1,10 @@
 # AI Company OS
 
-**2.0 Company Workbench** adds executable software delivery to the local personal workspace: Company UI, projects, per-agent model/skill configuration, a versioned task DAG, isolated Git worktrees, Docker build/test receipts, security/quality checks, Owner revisions, public conversations and meetings, and an explicit scoped Git release.
+**2.2 Company Workbench** provides the end-to-end local personal workspace: multi-company UI, per-agent model/skill configuration, versioned software delivery, isolated Git worktrees, Docker evidence, Owner gates, Living Office, branch-aware conversations, same-snapshot agent/model comparison, hybrid local knowledge, bounded document ingestion, and an optional exact-payload Controlled Cloud gateway.
 
 The supported local software flow is **BA → Leader → Owner scope approval → parallel Dev tasks → Build → Tester/SOC/QA → corrective rounds → SubPM → Owner acceptance → source export or explicit Git release**. Model output never substitutes for a command receipt. The original static-document workflow remains available under **Luồng tĩnh**.
 
-This implements the bounded local software contract, rather than every optional capability in specification 2.2. See the [current acceptance matrix and limits](docs/RELEASE_2.0.md), [API](docs/API.md), [security boundary](docs/SECURITY.md), and [original specification](AI_Company_OS_2.2_Work_Package/AI_Company_OS_Spec_v2.2.md).
+See the [2.2 acceptance matrix and explicit limits](docs/RELEASE_2.2.md), [API](docs/API.md), [security boundary](docs/SECURITY.md), and [original specification](AI_Company_OS_2.2_Work_Package/AI_Company_OS_Spec_v2.2.md). Unsupported or externally unverified items are listed explicitly; the runtime does not simulate them.
 
 ## Run locally
 
@@ -27,6 +27,7 @@ Optional environment variables:
 | `AICOS_DATA_DIR` | Private local data directory; default `AICompanyOS` under the OS local application-data directory |
 | `AICOS_OLLAMA_URL` | Trusted local Ollama endpoint |
 | `AICOS_DOCKER_ENDPOINT` | Explicit local Unix `.sock` or Windows Docker named pipe; remote TCP is rejected |
+| `AICOS_PROVIDER_*` | Optional provider credential referenced by a configured Controlled Cloud route, for example `env:AICOS_PROVIDER_OPENAI`; the value is never persisted |
 
 ## Use Company Workbench
 
@@ -40,7 +41,11 @@ Optional environment variables:
 8. Review the passing candidate, diff/patch, test logs and provenance. Owner delivery revisions produce another candidate and fresh checks within the approved scopes and run budget.
 9. Confirm semantic acceptance and rights. Download the patch/source ZIP or separately preview an explicit scoped Git commit. Optional GitHub push opens a **draft PR**, requires company policy, exact target confirmation and an ephemeral token, and never merges/deploys.
 
-**Conversations & Meetings** supports public messages, local-model replies, meeting participants and saved minutes. Minutes and SubPM reports are source artifacts; proposed memory only becomes canonical after Owner review in Knowledge. Office movement and bubbles project saved execution/public-message events. Visual pause, board-only mode, keyboard selection, follow camera and reduced motion are independent from the worker.
+**Conversations & Meetings** supports public messages, immutable branch forks, local-model replies, 2–4 route comparisons over one context snapshot, meeting participants and saved minutes. Minutes and SubPM reports are source artifacts; proposed memory only becomes canonical after Owner review in Knowledge. Office movement and bubbles project saved execution/public-message events. Visual pause, board-only mode, keyboard selection, follow camera and reduced motion are independent from the worker.
+
+**Knowledge** imports bounded TXT/Markdown/JSON/CSV/TSV/YAML/HTML/DOCX/XLSX and text-layer PDF files entirely offline. HTML active content is stripped; macros, unsafe archives, encrypted PDFs and detected credentials are rejected. Parsed text, parser version and the original file hash are retained; keep original binary documents separately. Search combines Unicode/accent-insensitive lexical scoring with a deterministic local feature vector and returns exact source revision/range citations with highlighted source inspection. OCR and neural embeddings remain optional extensions.
+
+**Controlled Cloud** is off by default. Under Company policy, select `controlled_cloud`, configure one of the fixed OpenAI Responses, Anthropic Messages or Gemini Interactions routes, then load the credential into the session RAM vault or reference an `AICOS_PROVIDER_*` environment variable. A public message can produce an exact payload preview with endpoint, provenance, classifications, size, retention caveat and SHA-256. Only the exact Owner-approved manifest is queued. Switching to Strict Local, changing provider version or changing policy version fences unsent work. Provider output is labelled `cloud_model_proposal`; it never auto-writes canonical memory. Provider-specific retention/ZDR settings remain an account-level responsibility.
 
 The command bar resolves `/status`, `/trace`, `/budget`, `/spec`, `/plan`, `/cook`, `/test`, `/check-policy`, `/report`, `/handoff @agent`, `/run software-delivery`, `/pause`, `/resume`, `/step`, `/retry` and `/cancel`. Role/skill commands inspect the current pinned node; they do not bypass prerequisites or dispatch extra tools. Slash commands never become shell text.
 
@@ -52,7 +57,7 @@ node examples/create-demo-repository.mjs /absolute/path/aicos-validation-demo
 
 The script creates a new Git fixture with a deliberately failing validation rule, an actual Node test and documentation. It refuses an existing destination and prints a project configuration to copy into Company. Create a second Dev agent for parallel code/docs tasks, or let the Leader assign both tasks to the default Dev. Use an installed local model, or supply the typed spec/plan/patch shown in each node's input inspector. Production model quality depends on the chosen weights; test fixtures do not prove that quality.
 
-Dependencies must already be present in the selected image or safe snapshot: execution containers have no network. For external dependencies, import and Owner-review the inventory-matching audit/license evidence described in [RELEASE_2.0.md](docs/RELEASE_2.0.md#dependency-evidence). An unknown license or unavailable audit blocks the mandatory gates.
+Dependencies must already be present in the selected image or safe snapshot: execution containers have no network. For external dependencies, import and Owner-review the inventory-matching audit/license evidence described in [RELEASE_2.2.md](docs/RELEASE_2.2.md#dependency-evidence). An unknown license or unavailable audit blocks the mandatory gates.
 
 ## Verify and package
 
@@ -82,4 +87,4 @@ AICOS_DATA_DIR=/absolute/path/new-profile dotnet run --project src/AICompanyOS.R
 
 Interrupted running jobs require explicit retry. An incomplete unaccepted Dev worktree can be reconciled from its blocked node inspector; only its registered managed worktree is removed. Accepted artifacts, source HEAD and unrelated worktrees are retained. Ambiguous remote Git failures require explicit release reconciliation/retry against the exact scoped ref.
 
-Historical documents: [1.0 static delivery](docs/RELEASE_1.0.md), [local inference](docs/LOCAL_INFERENCE.md), [baseline implementation review](docs/IMPLEMENTATION_REVIEW.md). Concept images/prototype are reference material, not runtime evidence.
+Historical documents: [1.0 static delivery](docs/RELEASE_1.0.md), [2.0 software workbench](docs/RELEASE_2.0.md), [local inference](docs/LOCAL_INFERENCE.md), [baseline implementation review](docs/IMPLEMENTATION_REVIEW.md). Concept images/prototype are reference material, not runtime evidence.

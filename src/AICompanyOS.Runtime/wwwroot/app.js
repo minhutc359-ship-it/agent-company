@@ -22,7 +22,7 @@ const companyWorkbench = new CompanyWorkbench({ api, request, dialog, refresh, t
 
 async function request(path, options = {}) {
   const response = await fetch(path, { credentials: 'same-origin', ...options,
-    headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers } });
+    headers: { ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...options.headers } });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error((body.error?.code ? `${body.error.code}: ` : '') + (body.error?.message || (typeof body.error === 'string' ? body.error : `Thao tác thất bại (${response.status}).`)));
@@ -94,7 +94,7 @@ function render() {
   }
   const chosenSources = [...$('modelSources').selectedOptions].map(option => option.value);
   $('modelSources').innerHTML = sources.map(source => `<option value="${escape(source.sourceId)}" ${chosenSources.includes(source.sourceId) ? 'selected' : ''}>${escape(source.title)} · v${source.revision}</option>`).join('');
-  $('sourceList').innerHTML = sources.map(source => `<div class="record"><h3>${escape(source.title)}</h3><span class="meta">v${source.revision} · ${source.characters} ký tự</span><p class="hash">${escape(source.contentSha256)}</p><button class="button" data-source="${escape(source.sourceId)}" data-revision="${source.revision}">Mở nguồn</button><button class="button" data-revise="${escape(source.sourceId)}">Thêm phiên bản</button></div>`).join('') || empty('Chưa có nguồn tài liệu.');
+  $('sourceList').innerHTML = sources.map(source => `<div class="record"><h3>${escape(source.title)}</h3><span class="meta">v${source.revision} · ${source.characters} ký tự · ${escape(source.kind)} · ${escape(source.classification)}</span><p class="hash">${escape(source.contentSha256)}</p><button class="button" data-source="${escape(source.sourceId)}" data-revision="${source.revision}">Mở nguồn</button><button class="button" data-revise="${escape(source.sourceId)}">Thêm phiên bản</button></div>`).join('') || empty('Chưa có nguồn tài liệu.');
   document.querySelectorAll('[data-source]').forEach(button => button.onclick = () => showSource(button.dataset.source, Number(button.dataset.revision)).catch(error => toast(error.message)));
   document.querySelectorAll('[data-revise]').forEach(button => button.onclick = () => reviseSource(button.dataset.revise).catch(error => toast(error.message)));
   $('canonical').innerHTML = canonical.map(record => `<div class="record"><h3>${escape(record.stableKey)} <span class="tag success">${escape(record.kind)} · v${record.version}</span></h3><p>${escape(record.body)}</p><span class="meta">Owner đã duyệt · ${record.citations.length} trích dẫn${record.citations.some(c => sources.find(s => s.sourceId === c.sourceId)?.revision !== c.revision) ? ' · Nguồn đã có bản mới, cần đối chiếu' : ''}</span></div>`).join('') || empty('Chưa có bộ nhớ chính thức.');
@@ -170,15 +170,18 @@ function renderRun(run) {
     click('openContext', async () => { const context = await api(`${base()}/context/${run.handoff.contextSnapshotId}`); dialog('Context bất biến của run', `<pre>${escape(JSON.stringify(context, null, 2))}</pre>`); });
   }
 }
-async function showSource(id, revision) {
+async function showSource(id, revision, citation = null) {
   const source = await api(`${base()}/sources/${id}/revisions/${revision}`);
-  dialog(`${source.title} · v${source.revision}`, `<p class="hash">${escape(source.contentSha256)}</p><p class="helper">Nguồn tham khảo chưa được xác minh. Vị trí trích dẫn dùng chỉ số UTF-16, bắt đầu từ 0.</p><pre>${escape(source.content)}</pre>`);
+  const pinned = citation && citation.contentSha256 === source.contentSha256 && citation.start >= 0 && citation.end <= source.content.length;
+  const content = pinned ? `${escape(source.content.slice(0, citation.start))}<mark>${escape(source.content.slice(citation.start, citation.end))}</mark>${escape(source.content.slice(citation.end))}` : escape(source.content);
+  dialog(`${source.title} · v${source.revision}`, `<p class="hash">${escape(source.contentSha256)}</p><p class="helper">${escape(source.kind)} · ${escape(source.classification)} · parser ${escape(source.parserVersion)}${source.originalName ? ` · ${escape(source.originalName)}` : ''}. Nguồn chưa được xác minh; citation dùng chỉ số UTF-16.</p><pre>${content}</pre>`);
+  if (pinned) $('dialogBody').querySelector('mark')?.scrollIntoView({ block: 'center' });
 }
 async function reviseSource(id) {
   const metadata = state.sources.find(s => s.sourceId === id);
   const source = await api(`${base()}/sources/${id}/revisions/${metadata.revision}`);
-  dialog('Thêm phiên bản nguồn', `<form id="revisionForm"><p>Giữ nguyên bản cũ và tạo v${source.revision + 1}.</p><label for="revisionText">${escape(source.title)}</label><textarea id="revisionText" maxlength="65536" required>${escape(source.content)}</textarea><button class="button primary" type="submit">Lưu phiên bản mới</button></form>`);
-  bindForm('revisionForm', async () => { await post(`${base()}/sources`, { sourceId: id, title: source.title, content: $('revisionText').value, expectedRevision: source.revision }); $('detailDialog').close(); await refresh(); toast('Đã lưu phiên bản nguồn mới.'); });
+  dialog('Thêm phiên bản nguồn', `<form id="revisionForm"><p>Giữ nguyên bản cũ và tạo v${source.revision + 1}.</p><label for="revisionText">${escape(source.title)}</label><textarea id="revisionText" maxlength="262144" required>${escape(source.content)}</textarea><button class="button primary" type="submit">Lưu phiên bản mới</button></form>`);
+  bindForm('revisionForm', async () => { await post(`${base()}/sources`, { sourceId: id, title: source.title, content: $('revisionText').value, expectedRevision: source.revision, kind: source.kind, classification: source.classification, parserVersion: 'owner-edit-v1', originalName: source.originalName }); $('detailDialog').close(); await refresh(); toast('Đã lưu phiên bản nguồn mới.'); });
 }
 function editAgent(id) {
   const agent = state.agents.find(a => a.agentId === id);
@@ -242,11 +245,23 @@ bindForm('createRun', async () => {
   selectedRunId = run.runId; createKey = uid('create'); $('objective').value = ''; await refresh(); toast(run.executionMode === 'local_model' ? 'Đã xếp hàng AI local với context đã chụp.' : 'Spec mẫu và handoff packet đã được lưu.');
 });
 for (const id of ['objective', 'sources', 'baAgent', 'leaderAgent', 'executionMode', 'localModel', 'modelSources']) $(id).addEventListener('input', () => createKey = uid('create'));
-bindForm('importSource', async () => { await post(`${base()}/sources`, { sourceId, title: $('sourceTitle').value, content: $('sourceText').value, expectedRevision: 0 }); sourceId = uid('source'); $('sourceTitle').value = ''; $('sourceText').value = ''; await refresh(); toast('Đã lưu nguồn. Nội dung chưa được duyệt làm bộ nhớ.'); });
+bindForm('importSource', async () => {
+  const file = $('sourceImportFile').files[0], classification = $('sourceClassification').value;
+  if (file) {
+    const form = new FormData(); form.set('sourceId', sourceId); form.set('title', $('sourceTitle').value); form.set('expectedRevision', '0'); form.set('classification', classification); form.set('file', file);
+    await api(`${base()}/sources/file`, { method: 'POST', body: form });
+  } else {
+    if (!$('sourceText').value.trim()) throw new Error('Chọn một file hoặc nhập nội dung văn bản.');
+    await post(`${base()}/sources`, { sourceId, title: $('sourceTitle').value, content: $('sourceText').value, expectedRevision: 0, kind: 'text', classification, parserVersion: 'owner-text-v1' });
+  }
+  sourceId = uid('source'); $('sourceTitle').value = ''; $('sourceText').value = ''; $('sourceImportFile').value = ''; await refresh(); toast('Đã parse và lưu nguồn. Nội dung chưa được duyệt làm bộ nhớ.');
+});
 bindForm('searchForm', async () => {
   const company = companyId, result = await api(`${base()}/knowledge/search?q=${encodeURIComponent($('searchQuery').value)}`);
   if (company !== companyId) return;
-  $('searchResults').innerHTML = result.hits.map((hit, i) => `<div class="result"><h3>${escape(hit.title)} <span class="tag">v${hit.citation.revision}</span></h3><pre>${escape(hit.excerpt)}</pre><p class="meta">${escape(hit.citation.sourceId)} · UTF-16 [${hit.citation.start}, ${hit.citation.end})</p><button class="button" data-propose="${i}">Đề xuất bộ nhớ</button></div>`).join('') || empty('Không tìm thấy nguồn phù hợp.');
+  $('knowledgeIndexStatus').textContent = `${result.mode} · ${result.indexVersion} · ${result.warnings[0]}`;
+  $('searchResults').innerHTML = result.hits.map((hit, i) => `<div class="result"><h3>${escape(hit.title)} <span class="tag">v${hit.citation.revision}</span> <span class="tag">${escape(hit.classification)}</span></h3><pre>${escape(hit.excerpt)}</pre><p class="meta">Score ${Number(hit.score).toFixed(3)} · lexical ${Number(hit.lexicalScore).toFixed(3)} · vector ${Number(hit.vectorScore).toFixed(3)} · ${escape(hit.canonicalStatus)}<br>${escape(hit.citation.sourceId)} · UTF-16 [${hit.citation.start}, ${hit.citation.end})</p><button class="button" data-inspect-hit="${i}">Xem nguồn / highlight</button><button class="button" data-propose="${i}">Đề xuất bộ nhớ</button></div>`).join('') || empty('Không tìm thấy nguồn phù hợp.');
+  document.querySelectorAll('[data-inspect-hit]').forEach(button => button.onclick = () => { const citation = result.hits[Number(button.dataset.inspectHit)].citation; showSource(citation.sourceId, citation.revision, citation).catch(error => toast(error.message)); });
   document.querySelectorAll('[data-propose]').forEach(button => button.onclick = () => propose(result.hits[Number(button.dataset.propose)]));
 });
 bindForm('createAgent', async () => { await post(`${base()}/agents`, { agentId, name: $('agentName').value, roleIds: chosenRoles($('createAgent')) }); agentId = uid('agent'); $('agentName').value = ''; await refresh(); toast('Đã tạo agent. Chưa cấp quyền công cụ.'); });
@@ -305,9 +320,9 @@ click('loadModels', async () => {
 $('sourceImportFile').addEventListener('change', async () => {
   const file = $('sourceImportFile').files[0]; if (!file) return;
   try {
-    if (file.size > 256 * 1024) throw new Error('File vượt giới hạn 256 KiB.');
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer());
-    if (text.length > 65536) throw new Error('Nội dung vượt giới hạn 65.536 ký tự.');
-    $('sourceTitle').value = file.name.slice(0, 160); $('sourceText').value = text;
+    if (file.size > 8 * 1024 * 1024) throw new Error('File vượt giới hạn 8 MiB.');
+    $('sourceTitle').value = file.name.replace(/\.[^.]+$/, '').slice(0, 160);
+    if (/\.(txt|md|markdown|json|csv|tsv|yaml|yml)$/i.test(file.name) && file.size <= 262144) $('sourceText').value = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer());
   } catch (error) { $('sourceImportFile').value = ''; toast(error.message); }
 });
+$('sourceText').addEventListener('input', () => { $('sourceImportFile').value = ''; });
