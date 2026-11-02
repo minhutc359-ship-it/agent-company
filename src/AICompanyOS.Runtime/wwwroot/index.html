@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>AI Company OS | Local Workspace</title>
+  <style>
+    :root{font-family:"Avenir Next",Avenir,"Segoe UI",sans-serif;color:#142d34;background:#e8efea;font-synthesis:none;--ink:#142d34;--muted:#617773;--line:#c8d6cf;--paper:#f8faf6;--jade:#28745f;--lime:#d9ec9b;--amber:#f0bb69;--red:#b95047}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 68% 7%,#f8f2d9 0,transparent 35%),linear-gradient(130deg,#dce9df,#eef1e6 52%,#d7e5df)}button,input,textarea{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid #d78350;outline-offset:2px}.shell{min-height:100vh;display:grid;grid-template-columns:224px minmax(0,1fr)}aside{background:#183c3b;color:#f5f5e9;padding:26px 17px;display:flex;flex-direction:column;gap:26px}.brand{font-family:Georgia,serif;font-size:19px;line-height:1.05}.brand small{display:block;color:#a8c9b9;font:10px/1.6 sans-serif;letter-spacing:1.4px;margin-top:8px}.nav-label{font-size:10px;color:#8fb2a3;letter-spacing:1.5px;margin:0 10px 8px}.nav{display:grid;gap:5px}.nav button{border:0;background:transparent;color:#c5d8ce;text-align:left;padding:11px 12px;border-radius:4px}.nav button.active,.nav button:hover{background:#2c5a50;color:#fff}.aside-note{margin-top:auto;border-top:1px solid #42665a;padding:15px 9px;color:#c3d6c9;font-size:12px;line-height:1.7}.dot{display:inline-block;width:8px;height:8px;background:#a6d382;border-radius:50%;margin-right:7px}.main{max-width:1450px;width:100%;margin:auto;padding:30px clamp(18px,4vw,58px) 48px}.top{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;color:var(--muted);font-size:12px}.badge{background:#d6e8d9;color:#2d6c58;padding:7px 10px;border-radius:3px;font-size:10px;font-weight:800;letter-spacing:.8px}.intro{display:flex;justify-content:space-between;align-items:end;gap:20px;margin:31px 0 23px}.eyebrow{font-size:10px;font-weight:800;letter-spacing:1.7px;color:var(--jade)}h1{font-family:Georgia,serif;font-size:clamp(28px,3vw,40px);font-weight:500;line-height:1.1;margin:7px 0 8px}p{color:var(--muted);margin:0;line-height:1.6}.actions,.row-actions{display:flex;gap:8px;flex-wrap:wrap}.button{border:1px solid #8da99e;background:transparent;color:var(--ink);padding:10px 14px;border-radius:3px;font-weight:650}.button.primary{background:var(--jade);border-color:var(--jade);color:#fff}.button.approve{background:var(--lime);border-color:#b6ca7d}.button:hover{filter:brightness(.96)}.grid{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(280px,.8fr);gap:16px}.panel{background:var(--paper);border:1px solid var(--line);border-radius:4px}.panel-head{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:12px}.panel-head h2{font:18px Georgia,serif;margin:0}.panel-body{padding:18px}.workflow{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.step{padding:11px;background:#edf2e9;border:1px solid #d3ded5;min-height:79px}.step small{font-size:9px;color:var(--muted);letter-spacing:.8px}.step strong{display:block;margin-top:7px;font-size:13px}.step.done{border-color:#84b09b;background:#e4f0e5}.step.wait{border-color:#e4bf79;background:#fbf0d9}.tag{display:inline-block;background:#e4ebe4;padding:5px 8px;font-size:10px;color:#49635b;border-radius:2px}.tag.warning{background:#fbefd7;color:#815616}.tag.success{background:#e0efd8;color:#396a42}.muted{font-size:12px;color:var(--muted)}.field{display:grid;gap:7px;margin:0 0 12px}.field label{font-size:11px;font-weight:750;color:#4f6860}.field textarea,.field input{width:100%;border:1px solid #c5d4cb;background:#fff;padding:11px;border-radius:3px;color:var(--ink)}.field textarea{min-height:93px;resize:vertical}.event-list{max-height:420px;overflow:auto}.event{padding:12px 0;border-bottom:1px solid #e0e8e1;font-size:12px;line-height:1.45}.event:last-child{border:0}.event b{display:block;color:#2e6655}.event time{font-size:10px;color:#788b82}.handoff{margin-top:15px;padding:13px;background:#edf3ed;border-left:3px solid var(--jade);overflow-wrap:anywhere}.hash{font:10px ui-monospace,monospace;color:#55756a}.notice{padding:12px 14px;background:#f8f1df;border:1px solid #e6d3a4;font-size:12px;line-height:1.6;margin:14px 0}.runs{display:grid;gap:7px}.run-item{width:100%;text-align:left;border:1px solid var(--line);background:#fff;padding:11px;border-radius:3px;color:var(--ink)}.run-item.selected{border-color:var(--jade);background:#edf5ee}.empty{padding:25px 5px;text-align:center;color:var(--muted);font-size:13px}.toast{position:fixed;right:20px;bottom:20px;background:#173f39;color:white;padding:12px 16px;max-width:min(420px,calc(100vw - 40px));font-size:13px;box-shadow:0 8px 26px #173f3933}.toast[hidden]{display:none}
+    @media(max-width:900px){.shell{grid-template-columns:180px 1fr}.grid{grid-template-columns:1fr}.main{padding-top:18px}}
+    @media(max-width:620px){.shell{display:block}aside{padding:13px 15px;display:flex;flex-direction:row;align-items:center;justify-content:space-between}.brand{font-size:16px}.brand small,.aside-note,.nav-label{display:none}.nav{display:flex;overflow:auto}.nav button{white-space:nowrap;padding:9px}.main{padding:18px 14px 35px}.top{font-size:10px}.intro{display:block;margin:23px 0 18px}.actions{margin-top:14px}.workflow{grid-template-columns:1fr 1fr}.panel-body{padding:14px}.panel-head{padding:13px 14px}}
+    @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <aside>
+    <div class="brand">AI Company OS<small>PERSONAL LOCAL WORKSPACE</small></div>
+    <div><div class="nav-label">WORKSPACE</div><nav class="nav"><button class="active">◫ &nbsp; Workflow</button><button id="refresh">↻ &nbsp; Refresh</button></nav></div>
+    <div class="aside-note"><span class="dot"></span><span id="runtime">Checking local runtime</span><br>Strict local · No provider calls</div>
+  </aside>
+  <main class="main">
+    <div class="top"><span>Company / Software Delivery Studio</span><span class="badge">LOCAL · FILE STORE</span></div>
+    <section class="intro"><div><div class="eyebrow">DURABLE WORKFLOW · MILESTONE 0</div><h1>Delivery workspace</h1><p>Workflow event và artifact được lưu trên máy; Office sẽ chiếu trạng thái từ dữ liệu này.</p></div><div class="actions"><button class="button" id="reload">Reload events</button></div></section>
+    <div class="grid">
+      <section class="panel">
+        <div class="panel-head"><h2>BA → Leader handoff</h2><span class="tag" id="state">No run selected</span></div>
+        <div class="panel-body">
+          <div class="workflow" id="steps"></div>
+          <div id="selectedRun" class="empty">Tạo workflow run để bắt đầu. Spec và plan hiện được tạo theo quy tắc local cố định, chưa dùng model AI.</div>
+          <div id="actions"></div>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>New request</h2><span class="tag">Offline</span></div>
+        <form class="panel-body" id="createForm">
+          <div class="field"><label for="objective">Mục tiêu công việc</label><textarea id="objective" required maxlength="4000" placeholder="Mô tả yêu cầu cần phân tích..."></textarea></div>
+          <div class="field"><label for="sources">Source references, phân cách bằng dấu phẩy</label><input id="sources" placeholder="spec-v2, adr-12"></div>
+          <button class="button primary" type="submit">Tạo run BA</button>
+        </form>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>Workflow runs</h2><span class="muted" id="runCount">0 runs</span></div>
+        <div class="panel-body runs" id="runs"><div class="empty">Chưa có workflow run.</div></div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>Event stream</h2><span class="tag">Append-only</span></div>
+        <div class="panel-body event-list" id="events"><div class="empty">Events sẽ xuất hiện khi tạo run.</div></div>
+      </section>
+    </div>
+    <div class="notice"><b>Trạng thái trung thực:</b> `produced` chỉ có nghĩa artifact mẫu đã được tạo. Chưa có LLM, tool execution, kiểm thử artifact, SQLite, migration hoặc bước triển khai.</div>
+  </main>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script>
+  const companyId = 'software-studio';
+  let selectedRunId = null;
+  let pendingCreateKey = crypto.randomUUID();
+  const $ = (id) => document.getElementById(id);
+  async function api(path, options = {}) {
+    const response = await fetch(path, { credentials: 'same-origin', ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } });
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `Request failed (${response.status})`);
+    return response.status === 204 ? null : response.json();
+  }
+  function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => $('toast').hidden = true, 3600); }
+  function safe(value) { const node = document.createElement('span'); node.textContent = value ?? ''; return node.innerHTML; }
+  async function refresh() {
+    const [health, runs, events] = await Promise.all([
+      api('/api/v1/health'),
+      api(`/api/v1/companies/${companyId}/workflow-runs`),
+      api(`/api/v1/companies/${companyId}/events`)
+    ]);
+    $('runtime').textContent = `${health.runtime} · ${health.storage}`;
+    $('runCount').textContent = `${runs.length} runs`;
+    $('runs').innerHTML = runs.length ? runs.map(run => `<button class="run-item ${run.runId === selectedRunId ? 'selected' : ''}" data-run="${safe(run.runId)}"><b>${safe(run.objective.slice(0, 62))}</b><br><span class="muted">${safe(run.runId)} · ${safe(run.state)}</span></button>`).join('') : '<div class="empty">Chưa có workflow run.</div>';
+    document.querySelectorAll('[data-run]').forEach(button => button.onclick = () => showRun(button.dataset.run));
+    $('events').innerHTML = events.length ? [...events].reverse().map(event => `<div class="event"><b>${safe(event.type)}</b><span>${safe(event.runId)} · seq ${event.seq}</span><time>${new Date(event.createdAt).toLocaleString()}</time></div>`).join('') : '<div class="empty">Chưa có event.</div>';
+    if (!selectedRunId && runs.length) selectedRunId = runs[0].runId;
+    if (selectedRunId) await showRun(selectedRunId, false);
+  }
+  async function showRun(runId, repaint = true) {
+    const run = await api(`/api/v1/companies/${companyId}/workflow-runs/${runId}`);
+    selectedRunId = runId;
+    $('state').textContent = run.state.replaceAll('_', ' ');
+    const stages = [
+      ['BA · spec', Boolean(run.spec), run.spec?.verificationState],
+      ['Leader · plan', Boolean(run.plan), run.plan?.verificationState],
+      ['Owner approval', run.ownerApproved === true, run.ownerApproved === null ? (run.plan ? 'pending' : 'locked') : (run.ownerApproved ? 'approved' : 'revision requested')]
+    ];
+    $('steps').innerHTML = stages.map(([label, done, status]) => `<div class="step ${done ? 'done' : status === 'pending' ? 'wait' : ''}"><small>${done ? 'RECORDED' : status === 'pending' ? 'WAITING' : 'PENDING'}</small><strong>${label}</strong><span class="muted">${safe(status || '')}</span></div>`).join('');
+    const packet = run.handoff ? `<div class="handoff"><b>Handoff packet · ${safe(run.handoff.handoffId)}</b><div class="hash">${safe(run.handoff.contentSha256)}</div><p class="muted">Context ${safe(run.handoff.contextSnapshotId)} · Sources: ${safe(run.handoff.sourceRefs.join(', ') || 'none')}</p></div>` : '';
+    $('selectedRun').className = '';
+    $('selectedRun').innerHTML = `<p><b>${safe(run.objective)}</b></p><p class="muted">${safe(run.runId)} · owner: ${safe(run.currentOwner)} · event cursor ${run.lastSequence}</p>${packet}`;
+    const controls = [];
+    if (run.state === 'awaiting_handoff') controls.push(`<button class="button primary" id="ack">ACK handoff as Leader</button>`);
+    if (run.state === 'awaiting_approval') controls.push(`<button class="button approve" id="approve">Approve plan</button><button class="button" id="reject">Request revision</button>`);
+    controls.push(`<button class="button" id="report">View report</button>`);
+    $('actions').innerHTML = `<div class="row-actions" style="margin-top:14px">${controls.join('')}</div>`;
+    if ($('ack')) $('ack').onclick = () => command(`/api/v1/companies/${companyId}/workflow-runs/${runId}/handoff/ack`, { packetHash: run.handoff.contentSha256, receiverAgentId: 'leader-agent' }, `ack-${run.handoff.handoffId}`);
+    if ($('approve')) $('approve').onclick = () => decide(runId, true);
+    if ($('reject')) $('reject').onclick = () => decide(runId, false);
+    if ($('report')) $('report').onclick = async () => { const report = await api(`/api/v1/companies/${companyId}/workflow-runs/${runId}/report`); alert(JSON.stringify(report, null, 2)); };
+    if (repaint) await refreshListOnly();
+  }
+  async function refreshListOnly() {
+    const runs = await api(`/api/v1/companies/${companyId}/workflow-runs`);
+    $('runCount').textContent = `${runs.length} runs`;
+    $('runs').innerHTML = runs.map(run => `<button class="run-item ${run.runId === selectedRunId ? 'selected' : ''}" data-run="${safe(run.runId)}"><b>${safe(run.objective.slice(0, 62))}</b><br><span class="muted">${safe(run.runId)} · ${safe(run.state)}</span></button>`).join('') || '<div class="empty">Chưa có workflow run.</div>';
+    document.querySelectorAll('[data-run]').forEach(button => button.onclick = () => showRun(button.dataset.run));
+  }
+  async function command(url, payload, key) {
+    try { await api(url, { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify(payload) }); await refresh(); toast('Đã ghi command vào local event log.'); }
+    catch (error) { toast(error.message); }
+  }
+  async function decide(runId, approved) { await command(`/api/v1/companies/${companyId}/workflow-runs/${runId}/approval`, { approved }, `owner-${runId}-${approved}`); }
+  $('createForm').onsubmit = async event => {
+    event.preventDefault();
+    const objective = $('objective').value.trim();
+    const sourceRefs = $('sources').value.split(',').map(value => value.trim()).filter(Boolean);
+    try {
+      const run = await api(`/api/v1/companies/${companyId}/workflow-runs`, { method: 'POST', headers: { 'Idempotency-Key': pendingCreateKey }, body: JSON.stringify({ objective, sourceRefs }) });
+      pendingCreateKey = crypto.randomUUID(); selectedRunId = run.runId; $('objective').value = ''; await refresh(); toast('Run và ba event đã được lưu trên thiết bị.');
+    } catch (error) { toast(error.message); }
+  };
+  $('reload').onclick = $('refresh').onclick = () => refresh().catch(error => toast(error.message));
+  api('/api/session').then(refresh).catch(error => toast(error.message));
+</script>
+</body>
+</html>

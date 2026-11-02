@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+.vs/
+.idea/
+.DS_Store
+data/
+*.user
+*.suo

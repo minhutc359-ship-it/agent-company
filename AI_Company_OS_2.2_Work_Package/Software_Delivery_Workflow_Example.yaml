@@ -1,0 +1,92 @@
+# CONCEPTUAL SAMPLE: Requires AI Company OS orchestration engine. Not an executable workflow yet.
+apiVersion: aicos/v1
+kind: Workflow
+metadata:
+  name: software-delivery
+  version: 1.0.0
+settings:
+  resumeAfterRestart: true
+  allowParallel: true
+  totalTokenBudget: 200000
+  maxCostUsd: 20
+  maxElapsedMinutes: 180
+  maxGlobalRetryPerNode: 2
+  defaultApproval: on_sensitive_side_effect
+  egressPolicy: company_inherited
+nodes:
+  - id: intake
+    type: task-intake
+    output: RequestContextV1
+  - id: ba
+    type: agent
+    role: ba
+    skills: [research, spec]
+    dependsOn: [intake]
+    output: RequirementSpecV1
+    gates: [schema_valid, source_provenance_complete]
+  - id: leader
+    type: agent
+    role: leader
+    skills: [plan, assign]
+    dependsOn: [ba]
+    output: DeliveryPlanV1
+    gates: [dag_valid, tasks_assigned]
+  - id: approval-plan
+    type: human-approval
+    dependsOn: [leader]
+    when: "policy.requirePlanApproval == true"
+  - id: dev
+    type: fanout-agent-tasks
+    role: dev
+    skills: [cook]
+    dependsOn: [leader, approval-plan]
+    input: "leader.taskGraph.readyTasks"
+    execution: isolated_worktrees
+    output: PatchBundleV1
+    gates: [tool_receipts, changes_within_allowlist]
+  - id: build
+    type: tool
+    tool: build.and.unit_tests
+    dependsOn: [dev]
+    output: BuildReceiptV1
+  - id: tester
+    type: agent
+    role: tester
+    skills: [test]
+    dependsOn: [build]
+    output: TestReportV1
+  - id: soc
+    type: agent
+    role: soc
+    skills: [security-review]
+    dependsOn: [build]
+    output: SecurityReportV1
+  - id: qa
+    type: agent
+    role: qa
+    skills: [check-policy, acceptance]
+    dependsOn: [build]
+    output: QualityPolicyReportV1
+  - id: gate
+    type: quality-gate
+    dependsOn: [tester, soc, qa]
+    policy: all_mandatory_pass_or_manual_override
+    onFail: dev
+    maxLoop: 2
+  - id: subpm
+    type: agent
+    role: subpm
+    skills: [report, handoff]
+    dependsOn: [gate]
+    output: DeliveryReportV1
+    runOnFailure: true
+  - id: final-approval
+    type: human-approval
+    dependsOn: [subpm]
+    when: "userRequestedRelease == true"
+  - id: release
+    type: tool
+    tool: git.release.scoped
+    dependsOn: [final-approval]
+    when: "userRequestedRelease == true && gate.status == 'passed'"
+    requires: [explicit_owner_approval, preview_diff, target_confirmed]
